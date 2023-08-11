@@ -35,10 +35,8 @@
 #include <string>
 #include <vector>
 
-#include "column_namer.hh"
 #include "data_parser.hh"
 #include "log_vtab_impl.hh"
-#include "logfile.hh"
 #include "logfile_sub_source.hh"
 
 class log_data_table : public log_vtab_impl {

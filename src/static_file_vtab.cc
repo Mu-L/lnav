@@ -31,13 +31,11 @@
 
 #include "static_file_vtab.hh"
 
-#include <stdlib.h>
 #include <string.h>
 
 #include "base/auto_mem.hh"
 #include "base/fs_util.hh"
 #include "base/lnav_log.hh"
-#include "base/paths.hh"
 #include "config.h"
 #include "ghc/filesystem.hpp"
 #include "lnav.hh"
@@ -163,7 +161,7 @@ sfvt_open(sqlite3_vtab* p_svt, sqlite3_vtab_cursor** pp_cursor)
 {
     static_file_vtab* p_vt = (static_file_vtab*) p_svt;
 
-    p_vt->base.zErrMsg = NULL;
+    p_vt->base.zErrMsg = nullptr;
 
     sf_vtab_cursor* p_cur = (sf_vtab_cursor*) new sf_vtab_cursor();
 

@@ -38,8 +38,8 @@ Options
 
    Execute the given lnav command, SQL query, or lnav script.  The
    argument must be prefixed with the character used to enter the prompt
-   to distinguish between the different types (i.e. ':', ';', '|').
-   This option can be given multiple times.
+   to distinguish between the different types (i.e. :code:`:`, :code:`;`,
+   :code:`|`, :code:`/`).  This option can be given multiple times.
 
 .. option:: -f <path>
 
@@ -86,6 +86,10 @@ Options
 
    Print the version of lnav.
 
+.. option:: -v
+
+   Print extra information during operations.
+
 .. option:: -q
 
    Do not print the log messages after executing all of the commands.
@@ -123,9 +127,14 @@ Subcommands
    Print out the configuration options as JSON-Pointers and the
    file/line-number where the configuration is sourced from.
 
-.. option:: regex101 import <regex101-url> <format-name> [<regex-name>]
+.. option:: format <format-name> get
 
-   Convert a regex101.com entry into a skeleton log format file.
+   Print information about the given log format.
+
+.. option:: format <format-name> source
+
+   Print the name of the first file that contained this log format
+   definition.
 
 .. option:: format <format-name> regex <regex-name> push
 
@@ -134,6 +143,22 @@ Subcommands
 .. option:: format <format-name> regex <regex-name> pull
 
    Pull changes to a regex that was previously pushed to regex101.com .
+
+.. option:: piper clean
+
+   Remove all of the files that stored data that was piped into **lnav**.
+
+.. option:: piper list
+
+   List all of the data that was piped into **lnav** from oldest to newest.
+   The listing will show the creation time, the URL you can use to reopen
+   the data, and a description of the data.  Passing the :option:`-v`
+   option will print out additional metadata that was captured, such as
+   the current working directory of **lnav** and the environment variables.
+
+.. option:: regex101 import <regex101-url> <format-name> [<regex-name>]
+
+   Convert a regex101.com entry into a skeleton log format file.
 
 Environment Variables
 ---------------------

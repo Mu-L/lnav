@@ -121,7 +121,7 @@ run_test ${lnav_test} -n \
 
 check_output "delete from lnav_views table works?" <<EOF
 count(*)
-8
+9
 EOF
 
 
@@ -133,7 +133,7 @@ run_test ${lnav_test} -n \
 
 check_output "insert into lnav_views table works?" <<EOF
 count(*)
-8
+9
 EOF
 
 run_cap_test ${lnav_test} -n \
@@ -177,3 +177,7 @@ run_cap_test ${lnav_test} -n \
     -c ";SELECT top_meta FROM lnav_top_view" \
     -c ":write-json-to -" \
     ${test_dir}/logfile_xml_msg.0
+
+run_cap_test ${lnav_test} -n \
+    -c ";UPDATE lnav_views SET top_meta = json_object('file', 'bad') WHERE name = 'text'" \
+    ${test_dir}/textfile_ansi.0

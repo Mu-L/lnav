@@ -51,13 +51,7 @@ not have to manually specify the log file format. The currently
 supported formats are: syslog, apache, strace, tcsh history, and
 generic log files with timestamps.
 
-Lnav will also display data piped in on the standard input. The
-following options are available when doing so:
-
- [33m•[0m [37m[40m -t [0m Prepend timestamps to the lines of data being read
-   in on the standard input.
- [33m•[0m [37m[40m -w file [0m Write the contents of the standard input to
-   this file.
+Lnav will also display data piped in on the standard input.
 
 To automatically execute queries or lnav commands after the files have
 been loaded, you can use the following options:
@@ -711,6 +705,12 @@ For support questions, email:
    
 
 
+[4m:[0m[1m[4mannotate[0m
+══════════════════════════════════════════════════════════════════════
+  Analyze the focused log message and attach annotations
+[4mSee Also[0m
+  [1m:comment[0m, [1m:tag[0m
+
 [4m:[0m[1m[4mappend-to[0m[4m [0m[4mpath[0m
 ══════════════════════════════════════════════════════════════════════
   Append marked lines in the current view to the given file
@@ -740,7 +740,7 @@ For support questions, email:
 ══════════════════════════════════════════════════════════════════════
   Clear the comment attached to the top log line
 [4mSee Also[0m
-  [1m:comment[0m, [1m:tag[0m
+  [1m:annotate[0m, [1m:comment[0m, [1m:tag[0m
 
 [4m:[0m[1m[4mclear-filter-expr[0m
 ══════════════════════════════════════════════════════════════════════
@@ -774,9 +774,12 @@ For support questions, email:
   Clear the partition the top line is a part of
 
 
-[4m:[0m[1m[4mclose[0m
+[4m:[0m[1m[4mclose[0m[4m [0m[4mpath[0m
 ══════════════════════════════════════════════════════════════════════
-  Close the top file in the view
+  Close the given file(s) or the top file in the view
+[4mParameter[0m
+  [4mpath[0m   A path or glob pattern that specifies the files to
+         close
 
 
 [4m:[0m[1m[4mcomment[0m[4m [0m[4mtext[0m
@@ -787,7 +790,7 @@ For support questions, email:
 [4mParameter[0m
   [4mtext[0m   The comment text
 [4mSee Also[0m
-  [1m:clear-comment[0m, [1m:tag[0m
+  [1m:annotate[0m, [1m:clear-comment[0m, [1m:tag[0m
 [4mExample[0m
 #1 To add the comment 'This is where it all went wrong' to the top line:
    [37m[40m:[0m[1m[36m[40mcomment[0m[37m[40m This is where it all went wrong          [0m
@@ -906,7 +909,7 @@ For support questions, email:
 [4mParameter[0m
   [4mtag[0m   The tags to delete
 [4mSee Also[0m
-  [1m:comment[0m, [1m:tag[0m
+  [1m:annotate[0m, [1m:comment[0m, [1m:tag[0m
 [4mExample[0m
 #1 To remove the tags '#BUG123' and '#needs-review' from all log lines:
    [37m[40m:[0m[1m[36m[40mdelete-tags[0m[37m[40m [0m[37m[40m#BUG123[0m[37m[40m [0m[37m[40m#needs-review[0m[37m[40m                [0m
@@ -1538,7 +1541,7 @@ For support questions, email:
 [4mParameter[0m
   [4mtag[0m   The tags to attach
 [4mSee Also[0m
-  [1m:comment[0m, [1m:delete-tags[0m, [1m:untag[0m
+  [1m:annotate[0m, [1m:comment[0m, [1m:delete-tags[0m, [1m:untag[0m
 [4mExample[0m
 #1 To add the tags '#BUG123' and '#needs-review' to the top line:
    [37m[40m:[0m[1m[36m[40mtag[0m[37m[40m [0m[37m[40m#BUG123[0m[37m[40m [0m[37m[40m#needs-review[0m[37m[40m                        [0m
@@ -1585,7 +1588,7 @@ For support questions, email:
 [4mParameter[0m
   [4mtag[0m   The tags to detach
 [4mSee Also[0m
-  [1m:comment[0m, [1m:tag[0m
+  [1m:annotate[0m, [1m:comment[0m, [1m:tag[0m
 [4mExample[0m
 #1 To remove the tags '#BUG123' and '#needs-review' from the top line:
    [37m[40m:[0m[1m[36m[40muntag[0m[37m[40m [0m[37m[40m#BUG123[0m[37m[40m [0m[37m[40m#needs-review[0m[37m[40m                      [0m
@@ -2086,7 +2089,7 @@ For support questions, email:
   [1munparse_url()[0m, [1mupper()[0m, [1mxpath()[0m
 [4mExample[0m
 #1 To get a string with the code points 0x48 and 0x49:
-   [37m[40m;[0m[1m[36m[40mSELECT[0m[37m[40m [0m[1m[37m[40mchar[0m[37m[40m([0m[1m[37m[40m0[0m[37m[40mx48[0m[37m[40m, [0m[1m[37m[40m0[0m[37m[40mx49[0m[37m[40m)                           [0m
+   [37m[40m;[0m[1m[36m[40mSELECT[0m[37m[40m [0m[1m[37m[40mchar[0m[37m[40m([0m[1m[37m[40m0x48[0m[37m[40m, [0m[1m[37m[40m0x49[0m[37m[40m)                           [0m
    
 
 
@@ -4807,4 +4810,3 @@ For support questions, email:
   [4mcte-table-name[0m   The name for the temporary table.
   [4mselect-stmt[0m      The SELECT statement used to
                    populate the temporary table.
-

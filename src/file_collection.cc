@@ -42,13 +42,20 @@
 #include "base/string_util.hh"
 #include "config.h"
 #include "file_converter_manager.hh"
-#include "lnav_util.hh"
 #include "logfile.hh"
 #include "service_tags.hh"
 #include "tailer/tailer.looper.hh"
 
 static std::mutex REALPATH_CACHE_MUTEX;
 static std::unordered_map<std::string, std::string> REALPATH_CACHE;
+
+void
+child_poller::send_sigint()
+{
+    if (this->cp_child) {
+        kill(this->cp_child->in(), SIGINT);
+    }
+}
 
 child_poll_result_t
 child_poller::poll(file_collection& fc)
@@ -426,6 +433,7 @@ file_collection::watch_logfile(const std::string& filename,
 
                             auto convert_res = cr.unwrap();
                             retval.fc_child_pollers.emplace_back(child_poller{
+                                filename,
                                 std::move(convert_res.cr_child),
                                 [filename,
                                  st,

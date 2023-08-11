@@ -108,6 +108,8 @@ public:
 
     uint32_t get_capacity() const { return this->md_ovector_count; }
 
+    std::string to_string() const;
+
 private:
     friend matcher;
     friend code;
@@ -258,6 +260,8 @@ public:
     }
 
     const std::string& get_pattern() const { return this->p_pattern; }
+
+    std::string to_string() const { return this->p_pattern; }
 
     named_captures get_named_captures() const;
 

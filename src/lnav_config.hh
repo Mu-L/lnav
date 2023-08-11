@@ -36,7 +36,6 @@
 #include <map>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "archive_manager.cfg.hh"
@@ -46,6 +45,7 @@
 #include "file_vtab.cfg.hh"
 #include "ghc/filesystem.hpp"
 #include "lnav_config_fwd.hh"
+#include "log.annotate.cfg.hh"
 #include "log_level.hh"
 #include "logfile.cfg.hh"
 #include "logfile_sub_source.cfg.hh"
@@ -103,7 +103,7 @@ struct _lnav_config {
     std::string lc_ui_keymap;
     std::string lc_ui_theme;
     movement_config lc_ui_movement;
-    std::unordered_map<std::string, key_map> lc_ui_keymaps;
+    std::map<std::string, key_map> lc_ui_keymaps;
     std::map<std::string, std::string> lc_ui_key_overrides;
     std::map<std::string, std::string> lc_global_vars;
     std::map<std::string, lnav_theme> lc_ui_theme_defs;
@@ -118,6 +118,7 @@ struct _lnav_config {
     sysclip::config lc_sysclip;
     lnav::url_handler::config lc_url_handlers;
     logfile_sub_source_ns::config lc_log_source;
+    lnav::log::annotate::config lc_log_annotations;
 };
 
 extern struct _lnav_config lnav_config;

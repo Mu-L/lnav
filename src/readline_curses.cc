@@ -61,7 +61,6 @@
 #include "base/string_util.hh"
 #include "fmt/format.h"
 #include "fts_fuzzy_match.hh"
-#include "lnav_util.hh"
 #include "readline_curses.hh"
 #include "shlex.hh"
 #include "spookyhash/SpookyV2.h"
@@ -760,7 +759,7 @@ readline_curses::start()
 
         signal(SIGALRM, sigalrm);
         signal(SIGWINCH, sigwinch);
-        signal(SIGINT, sigterm);
+        signal(SIGINT, SIG_IGN);
         signal(SIGTERM, sigterm);
 
         dup2(this->rc_pty[RCF_SLAVE], STDIN_FILENO);

@@ -323,7 +323,7 @@ ptime_s(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
     secs2tm(epoch, &dst->et_tm);
     dst->et_flags = ETF_DAY_SET | ETF_MONTH_SET | ETF_YEAR_SET | ETF_HOUR_SET
         | ETF_MINUTE_SET | ETF_SECOND_SET | ETF_MACHINE_ORIENTED
-        | ETF_EPOCH_TIME;
+        | ETF_EPOCH_TIME | ETF_ZONE_SET;
 
     return (epoch > 0);
 }
@@ -381,7 +381,7 @@ ptime_q(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
     secs2tm(epoch, &dst->et_tm);
     dst->et_flags = ETF_DAY_SET | ETF_MONTH_SET | ETF_YEAR_SET | ETF_HOUR_SET
         | ETF_MINUTE_SET | ETF_SECOND_SET | ETF_MACHINE_ORIENTED
-        | ETF_EPOCH_TIME;
+        | ETF_EPOCH_TIME | ETF_ZONE_SET;
 
     return (epoch > 0);
 }
@@ -412,6 +412,7 @@ ptime_L(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
     });
 
     if ((ms >= 0 && ms <= 999)) {
+        dst->et_flags |= ETF_MILLIS_SET;
         dst->et_nsec = ms * 1000000;
         return true;
     }
@@ -494,7 +495,7 @@ ptime_i(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
     secs2tm(epoch, &dst->et_tm);
     dst->et_flags = ETF_DAY_SET | ETF_MONTH_SET | ETF_YEAR_SET | ETF_HOUR_SET
         | ETF_MINUTE_SET | ETF_SECOND_SET | ETF_MACHINE_ORIENTED
-        | ETF_EPOCH_TIME;
+        | ETF_EPOCH_TIME | ETF_ZONE_SET;
 
     return (epoch_ms > 0);
 }
@@ -531,7 +532,7 @@ ptime_6(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
     secs2tm(epoch, &dst->et_tm);
     dst->et_flags = ETF_DAY_SET | ETF_MONTH_SET | ETF_YEAR_SET | ETF_HOUR_SET
         | ETF_MINUTE_SET | ETF_SECOND_SET | ETF_MACHINE_ORIENTED
-        | ETF_EPOCH_TIME;
+        | ETF_EPOCH_TIME | ETF_ZONE_SET;
 
     return (epoch_us > 0);
 }
@@ -882,6 +883,16 @@ ftime_y(char* dst, off_t& off_inout, ssize_t len, const struct exttm& tm)
 inline bool
 ptime_z(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
 {
+    if (off_inout + 1 <= len && str[off_inout] == 'Z') {
+        off_inout += 1;
+        dst->et_flags |= ETF_ZONE_SET | ETF_Z_FOR_UTC;
+#ifdef HAVE_STRUCT_TM_TM_ZONE
+        dst->et_tm.tm_gmtoff = 0;
+#endif
+        dst->et_gmtoff = 0;
+        return true;
+    }
+
     int consume_amount = 5;
 
     if ((off_inout + 6) <= len && str[off_inout + 3] == ':') {
@@ -907,6 +918,10 @@ ptime_z(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
         mins = ((str[off_inout + skip_colon + 3] - '0') * 10
                 + (str[off_inout + skip_colon + 4] - '0') * 1)
             * 60;
+        if (skip_colon) {
+            dst->et_flags |= ETF_Z_COLON;
+        }
+        dst->et_flags |= ETF_ZONE_SET;
         dst->et_gmtoff = sign * (hours + mins);
 #ifdef HAVE_STRUCT_TM_TM_ZONE
         dst->et_tm.tm_gmtoff = sign * (hours + mins);
@@ -919,6 +934,15 @@ ptime_z(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
 inline void
 ftime_z(char* dst, off_t& off_inout, ssize_t len, const struct exttm& tm)
 {
+    if (!(tm.et_flags & ETF_ZONE_SET)) {
+        return;
+    }
+
+    if (tm.et_flags & ETF_Z_FOR_UTC) {
+        PTIME_APPEND('Z');
+        return;
+    }
+
     long gmtoff = std::abs(tm.et_gmtoff) / 60;
 
     if (tm.et_gmtoff < 0) {
@@ -932,6 +956,9 @@ ftime_z(char* dst, off_t& off_inout, ssize_t len, const struct exttm& tm)
 
     PTIME_APPEND('0' + ((hours / 10) % 10));
     PTIME_APPEND('0' + ((hours / 1) % 10));
+    if (tm.et_flags & ETF_Z_COLON) {
+        PTIME_APPEND(':');
+    }
     PTIME_APPEND('0' + ((mins / 10) % 10));
     PTIME_APPEND('0' + ((mins / 1) % 10));
 }
@@ -945,6 +972,7 @@ ptime_f(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
                 return false;
             }
         }
+        dst->et_flags |= ETF_MICROS_SET;
         dst->et_nsec = ((str[off_inout + 0] - '0') * 100000
                         + (str[off_inout + 1] - '0') * 10000
                         + (str[off_inout + 2] - '0') * 1000
@@ -979,6 +1007,7 @@ ptime_N(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
                 return false;
             }
         }
+        dst->et_flags |= ETF_NANOS_SET;
         dst->et_nsec = ((str[off_inout + 0] - '0') * 100000000
                         + (str[off_inout + 1] - '0') * 10000000
                         + (str[off_inout + 2] - '0') * 1000000
@@ -1083,7 +1112,7 @@ ptime_at(struct exttm* dst, const char* str, off_t& off_inout, ssize_t len)
 
     dst->et_flags |= ETF_DAY_SET | ETF_MONTH_SET | ETF_YEAR_SET | ETF_HOUR_SET
         | ETF_MINUTE_SET | ETF_SECOND_SET | ETF_MACHINE_ORIENTED
-        | ETF_EPOCH_TIME;
+        | ETF_EPOCH_TIME | ETF_ZONE_SET;
 
     return true;
 }

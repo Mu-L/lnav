@@ -37,14 +37,12 @@
 #include "help_text_formatter.hh"
 #include "lnav.hh"
 #include "lnav_config.hh"
-#include "lnav_util.hh"
 #include "log_format_loader.hh"
 #include "plain_text_source.hh"
 #include "readline_curses.hh"
 #include "readline_highlighters.hh"
 #include "service_tags.hh"
 #include "sql_help.hh"
-#include "sqlite-extension-func.hh"
 #include "tailer/tailer.looper.hh"
 #include "view_helpers.examples.hh"
 #include "vtab_module.hh"
@@ -903,11 +901,11 @@ rl_focus(readline_curses* rc)
 void
 rl_blur(readline_curses* rc)
 {
+    auto* tc = *lnav_data.ld_view_stack.top();
     auto fos = (field_overlay_source*) lnav_data.ld_views[LNV_LOG]
                    .get_overlay_source();
 
     fos->fos_contexts.pop();
-    lnav_data.ld_views[LNV_LOG].set_sync_selection_and_top(
-        fos->fos_contexts.top().c_show);
+    tc->set_sync_selection_and_top(fos->fos_contexts.top().c_show);
     lnav_data.ld_preview_generation += 1;
 }

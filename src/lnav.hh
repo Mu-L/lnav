@@ -34,20 +34,14 @@
 
 #include <list>
 #include <map>
-#include <memory>
-#include <set>
-#include <stack>
 #include <unordered_map>
 
 #include <signal.h>
 #include <sys/time.h>
 
-#include "archive_manager.hh"
 #include "base/ansi_scrubber.hh"
-#include "base/future_util.hh"
 #include "base/isc.hh"
 #include "bottom_status_source.hh"
-#include "bound_tags.hh"
 #include "command_executor.hh"
 #include "config.h"
 #include "db_sub_source.hh"
@@ -55,19 +49,14 @@
 #include "file_collection.hh"
 #include "files_sub_source.hh"
 #include "filter_status_source.hh"
-#include "grep_highlighter.hh"
+#include "gantt_status_source.hh"
 #include "hist_source.hh"
 #include "input_dispatcher.hh"
-#include "listview_curses.hh"
-#include "log_format_loader.hh"
 #include "log_vtab_impl.hh"
-#include "logfile.hh"
 #include "plain_text_source.hh"
 #include "preview_status_source.hh"
 #include "readline_curses.hh"
-#include "relative_time.hh"
-#include "safe/safe.h"
-#include "sql_util.hh"
+#include "sqlitepp.hh"
 #include "statusview_curses.hh"
 #include "textfile_sub_source.hh"
 #include "view_helpers.hh"
@@ -86,6 +75,7 @@ typedef enum {
     LNS_DOC,
     LNS_PREVIEW,
     LNS_SPECTRO,
+    LNS_GANTT,
 
     LNS__MAX
 } lnav_status_t;
@@ -173,7 +163,8 @@ struct lnav_data_t {
     std::list<child_poller> ld_child_pollers;
     std::list<std::pair<std::string, file_location_t>> ld_files_to_front;
     bool ld_stdout_used;
-    sig_atomic_t ld_looping;
+    std::atomic_uint32_t ld_sigint_count{0};
+    sig_atomic_t ld_looping{true};
     sig_atomic_t ld_winched;
     sig_atomic_t ld_child_terminated;
     unsigned long ld_flags;
@@ -188,6 +179,7 @@ struct lnav_data_t {
     doc_status_source ld_doc_status_source;
     preview_status_source ld_preview_status_source;
     std::unique_ptr<spectro_status_source> ld_spectro_status_source;
+    gantt_status_source ld_gantt_status_source;
     bool ld_preview_hidden;
     int64_t ld_preview_generation{0};
     action_broadcaster<listview_curses> ld_scroll_broadcaster;
@@ -213,6 +205,8 @@ struct lnav_data_t {
         ld_user_message_expiration;
     textview_curses ld_spectro_details_view;
     plain_text_source ld_spectro_no_details_source;
+    textview_curses ld_gantt_details_view;
+    plain_text_source ld_gantt_details_source;
 
     view_stack<textview_curses> ld_view_stack;
     textview_curses* ld_last_view;
@@ -268,11 +262,20 @@ class main_looper
 public:
 };
 
+enum class verbosity_t : int {
+    quiet,
+    standard,
+    verbose,
+};
+
 extern struct lnav_data_t lnav_data;
+extern verbosity_t verbosity;
 
 extern readline_context::command_map_t lnav_commands;
 extern const int ZOOM_LEVELS[];
 extern const ssize_t ZOOM_COUNT;
+
+#define HELP_MSG_CTRL(x, msg) "Press '" ANSI_BOLD("CTRL-" #x) "' " msg
 
 #define HELP_MSG_1(x, msg) "Press '" ANSI_BOLD(#x) "' " msg
 

@@ -34,8 +34,6 @@
 
 #include "yajlpp.hh"
 
-#include "base/fs_util.hh"
-#include "base/snippet_highlighters.hh"
 #include "config.h"
 #include "fmt/format.h"
 #include "ghc/filesystem.hpp"
@@ -1584,3 +1582,17 @@ yajlpp_gen::to_string_fragment()
 
     return string_fragment::from_bytes(buf, len);
 }
+
+namespace yajlpp {
+
+auto_mem<yajl_handle_t>
+alloc_handle(const yajl_callbacks* cb, void* cu)
+{
+    auto_mem<yajl_handle_t> retval(yajl_free);
+
+    retval = yajl_alloc(cb, nullptr, cu);
+
+    return retval;
+}
+
+}  // namespace yajlpp

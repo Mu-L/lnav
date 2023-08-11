@@ -29,22 +29,25 @@
 
 #include "field_overlay_source.hh"
 
-#include "base/ansi_scrubber.hh"
 #include "base/humanize.time.hh"
 #include "base/snippet_highlighters.hh"
 #include "config.h"
+#include "log.annotate.hh"
 #include "log_format_ext.hh"
 #include "log_vtab_impl.hh"
 #include "md2attr_line.hh"
 #include "readline_highlighters.hh"
-#include "relative_time.hh"
 #include "vtab_module.hh"
 #include "vtab_module_json.hh"
+
+using namespace md4cpp::literals;
+using namespace lnav::roles::literals;
 
 json_string extract(const char* str);
 
 void
-field_overlay_source::build_field_lines(const listview_curses& lv)
+field_overlay_source::build_field_lines(const listview_curses& lv,
+                                        vis_line_t row)
 {
     auto& lss = this->fos_lss;
     auto& vc = view_colors::singleton();
@@ -57,7 +60,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv)
         return;
     }
 
-    content_line_t cl = lss.at(lv.get_selection());
+    content_line_t cl = lss.at(row);
     std::shared_ptr<logfile> file = lss.find(cl);
     auto ll = file->begin() + cl;
     auto format = file->get_format();
@@ -72,13 +75,11 @@ field_overlay_source::build_field_lines(const listview_curses& lv)
         display = display || this->fos_contexts.top().c_show;
     }
 
-    this->build_meta_line(lv, this->fos_lines, lv.get_top());
-
     if (!display) {
         return;
     }
 
-    if (!this->fos_log_helper.parse_line(lv.get_selection())) {
+    if (!this->fos_log_helper.parse_line(row)) {
         return;
     }
 
@@ -213,7 +214,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv)
     }
 
     if ((!this->fos_contexts.empty() && this->fos_contexts.top().c_show)
-        || diff_tv.tv_sec > 0)
+        || diff_tv.tv_sec > 0 || ll->is_time_skewed())
     {
         this->fos_lines.emplace_back(time_line);
     }
@@ -450,6 +451,29 @@ field_overlay_source::build_meta_line(const listview_curses& lv,
 {
     auto line_meta_opt = this->fos_lss.find_bookmark_metadata(row);
 
+    auto file_and_line = this->fos_lss.find_line_with_file(row);
+    if (file_and_line && !file_and_line->second->is_continued()) {
+        auto applicable_anno = lnav::log::annotate::applicable(row);
+        if (!applicable_anno.empty()
+            && (!line_meta_opt
+                || line_meta_opt.value()->bm_annotations.la_pairs.empty()))
+        {
+            auto anno_msg
+                = attr_line_t(" ")
+                      .append(":memo:"_emoji)
+                      .append(" Annotations available, ")
+                      .append(lv.get_selection() == row
+                                  ? "use "
+                                  : "focus on this line and use ")
+                      .append(":annotate"_quoted_code)
+                      .append(" to apply them")
+                      .append(lv.get_selection() == row ? " to this line" : "")
+                      .with_attr_for_all(VC_ROLE.value(role_t::VCR_COMMENT));
+
+            dst.emplace_back(anno_msg);
+        }
+    }
+
     if (!line_meta_opt) {
         return;
     }
@@ -474,6 +498,9 @@ field_overlay_source::build_meta_line(const listview_curses& lv,
         }
 
         auto comment_lines = al.rtrim().split_lines();
+        if (comment_lines.back().empty()) {
+            comment_lines.pop_back();
+        }
         for (size_t lpc = 0; lpc < comment_lines.size(); lpc++) {
             auto& comment_line = comment_lines[lpc];
 
@@ -524,6 +551,57 @@ field_overlay_source::build_meta_line(const listview_curses& lv,
         }
         dst.emplace_back(al);
     }
+    if (!line_meta.bm_annotations.la_pairs.empty()) {
+        for (const auto& anno_pair : line_meta.bm_annotations.la_pairs) {
+            attr_line_t al;
+            md2attr_line mdal;
+
+            dst.push_back(
+                attr_line_t()
+                    .append(filename_width, ' ')
+                    .appendf(FMT_STRING(" \u251c {}:"), anno_pair.first)
+                    .with_attr_for_all(VC_ROLE.value(role_t::VCR_COMMENT)));
+
+            auto parse_res = md4cpp::parse(anno_pair.second, mdal);
+            if (parse_res.isOk()) {
+                al.append(parse_res.unwrap());
+            } else {
+                log_error("%d: cannot convert annotation to markdown: %s",
+                          (int) row,
+                          parse_res.unwrapErr().c_str());
+                al.append(anno_pair.second);
+            }
+
+            auto anno_lines = al.rtrim().split_lines();
+            if (anno_lines.back().empty()) {
+                anno_lines.pop_back();
+            }
+            for (size_t lpc = 0; lpc < anno_lines.size(); lpc++) {
+                auto& anno_line = anno_lines[lpc];
+
+                if (lpc == 0 && anno_line.empty()) {
+                    continue;
+                }
+                // anno_line.with_attr_for_all(VC_ROLE.value(role_t::VCR_COMMENT));
+                anno_line.insert(0,
+                                 lpc == anno_lines.size() - 1
+                                     ? " \u2570 "_comment
+                                     : " \u2502 "_comment);
+                anno_line.insert(0, filename_width, ' ');
+                if (tc != nullptr) {
+                    auto hl = tc->get_highlights();
+                    auto hl_iter
+                        = hl.find({highlight_source_t::PREVIEW, "search"});
+
+                    if (hl_iter != hl.end()) {
+                        hl_iter->second.annotate(anno_line, filename_width);
+                    }
+                }
+
+                dst.emplace_back(anno_line);
+            }
+        }
+    }
 }
 
 void
@@ -539,36 +617,36 @@ field_overlay_source::add_key_line_attrs(int key_size, bool last_line)
     sa.emplace_back(lr, VC_STYLE.value(text_attrs{A_BOLD}));
 }
 
-bool
-field_overlay_source::list_value_for_overlay(const listview_curses& lv,
-                                             int y,
-                                             int bottom,
-                                             vis_line_t row,
-                                             attr_line_t& value_out)
+void
+field_overlay_source::list_value_for_overlay(
+    const listview_curses& lv,
+    vis_line_t row,
+    std::vector<attr_line_t>& value_out)
 {
-    if (y == 0) {
-        this->build_field_lines(lv);
-        return false;
+    if (row == lv.get_selection()) {
+        this->build_field_lines(lv, row);
+        value_out = this->fos_lines;
+    }
+    this->build_meta_line(lv, value_out, row);
+}
+
+nonstd::optional<attr_line_t>
+field_overlay_source::list_header_for_overlay(const listview_curses& lv,
+                                              vis_line_t vl)
+{
+    attr_line_t retval;
+
+    retval.append(this->fos_lss.get_filename_offset(), ' ');
+    if (this->fos_contexts.top().c_show) {
+        return retval
+            .appendf(FMT_STRING("\u258C Line {:L} parser details.  "
+                                "(Press '"),
+                     (int) vl)
+            .append("p"_hotkey)
+            .append("' to toggle this view)");
     }
 
-    if (1 <= y && y <= (int) this->fos_lines.size()) {
-        value_out = this->fos_lines[y - 1];
-        return true;
-    }
-
-    if (!this->fos_meta_lines.empty() && this->fos_meta_lines_row == row - 1_vl)
-    {
-        value_out = this->fos_meta_lines.front();
-        this->fos_meta_lines.erase(this->fos_meta_lines.begin());
-
-        return true;
-    }
-
-    if (row < lv.get_inner_height()) {
-        this->fos_meta_lines.clear();
-        this->build_meta_line(lv, this->fos_meta_lines, row);
-        this->fos_meta_lines_row = row;
-    }
-
-    return false;
+    return retval.append("\u258C Line ")
+        .append(lnav::roles::number(fmt::format(FMT_STRING("{:L}"), (int) vl)))
+        .append(" metadata");
 }

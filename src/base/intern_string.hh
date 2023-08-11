@@ -33,7 +33,6 @@
 #define intern_string_hh
 
 #include <ostream>
-#include <string>
 #include <vector>
 
 #include <assert.h>
@@ -200,6 +199,17 @@ struct string_fragment {
         }
 
         return memcmp(this->data(), sf.data(), sf.length()) == 0;
+    }
+
+    bool operator<(const string_fragment& rhs) const
+    {
+        auto rc = strncmp(
+            this->data(), rhs.data(), std::min(this->length(), rhs.length()));
+        if (rc < 0 || (rc == 0 && this->length() < rhs.length())) {
+            return true;
+        }
+
+        return false;
     }
 
     bool iequal(const string_fragment& sf) const
@@ -434,8 +444,10 @@ struct string_fragment {
             });
     }
 
+    using split_when_result = std::pair<string_fragment, string_fragment>;
+
     template<typename P>
-    split_result split_when(P&& predicate) const
+    split_when_result split_when(P&& predicate) const
     {
         int consumed = 0;
         while (consumed < this->length()) {
@@ -446,7 +458,33 @@ struct string_fragment {
             consumed += 1;
         }
 
-        if (consumed == 0) {
+        return std::make_pair(
+            string_fragment{
+                this->sf_string,
+                this->sf_begin,
+                this->sf_begin + consumed,
+            },
+            string_fragment{
+                this->sf_string,
+                this->sf_begin + consumed
+                    + ((consumed == this->length()) ? 0 : 1),
+                this->sf_end,
+            });
+    }
+
+    template<typename P>
+    split_result split_pair(P&& predicate) const
+    {
+        int consumed = 0;
+        while (consumed < this->length()) {
+            if (predicate(this->data()[consumed])) {
+                break;
+            }
+
+            consumed += 1;
+        }
+
+        if (consumed == this->length()) {
             return nonstd::nullopt;
         }
 
@@ -843,10 +881,23 @@ to_string_fragment(const std::string& s)
     return string_fragment(s.c_str(), 0, s.length());
 }
 
+inline string_fragment
+to_string_fragment(const scn::string_view& sv)
+{
+    return string_fragment::from_bytes(sv.data(), sv.length());
+}
+
 struct frag_hasher {
     size_t operator()(const string_fragment& sf) const
     {
         return hash_str(sf.data(), sf.length());
+    }
+};
+
+struct intern_hasher {
+    size_t operator()(const intern_string_t& is) const
+    {
+        return hash_str(is.c_str(), is.size());
     }
 };
 

@@ -450,6 +450,11 @@ public:
         return false;
     }
 
+    virtual std::map<intern_string_t, logline_value_meta> get_field_states()
+    {
+        return {};
+    }
+
     const char* const* get_timestamp_formats() const
     {
         if (this->lf_timestamp_format.empty()) {
@@ -536,6 +541,38 @@ public:
     std::map<const intern_string_t, std::shared_ptr<format_tag_def>>
         lf_tag_defs;
 
+    struct opid_descriptor {
+        positioned_property<intern_string_t> od_field;
+        factory_container<lnav::pcre2pp::code> od_extractor;
+        std::string od_prefix{" "};
+        std::string od_suffix;
+        std::string od_joiner{", "};
+    };
+
+    struct opid_descriptors {
+        std::shared_ptr<std::vector<opid_descriptor>> od_descriptors;
+    };
+
+    std::shared_ptr<std::map<intern_string_t, opid_descriptors>>
+        lf_opid_description_def{
+            std::make_shared<std::map<intern_string_t, opid_descriptors>>()};
+
+    ArenaAlloc::Alloc<char> lf_desc_allocator{2 * 1024};
+
+    using desc_field_set
+        = robin_hood::unordered_set<intern_string_t,
+                                    intern_hasher,
+                                    std::equal_to<intern_string_t>>;
+
+    desc_field_set lf_desc_fields;
+
+    using desc_cap_map
+        = robin_hood::unordered_map<intern_string_t,
+                                    string_fragment,
+                                    intern_hasher,
+                                    std::equal_to<intern_string_t>>;
+    desc_cap_map lf_desc_captures;
+
 protected:
     static std::vector<std::shared_ptr<log_format>> lf_root_formats;
 
@@ -555,11 +592,13 @@ protected:
         int pf_timestamp_index{-1};
     };
 
-    static bool next_format(pcre_format* fmt, int& index, int& locked_index);
+    static bool next_format(const pcre_format* fmt,
+                            int& index,
+                            int& locked_index);
 
     const char* log_scanf(uint32_t line_number,
                           string_fragment line,
-                          pcre_format* fmt,
+                          const pcre_format* fmt,
                           const char* time_fmt[],
                           struct exttm* tm_out,
                           struct timeval* tv_out,

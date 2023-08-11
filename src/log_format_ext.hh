@@ -104,6 +104,7 @@ public:
                           int>::with_default_args<PCRE2_DOTALL>
             p_pcre;
         std::vector<indexed_value_def> p_value_by_index;
+        std::map<intern_string_t, int> p_value_name_to_index;
         std::vector<int> p_numeric_value_indexes;
         int p_timestamp_field_index{-1};
         int p_time_field_index{-1};
@@ -168,6 +169,17 @@ public:
     bool match_samples(const std::vector<sample>& samples) const;
 
     bool hide_field(const intern_string_t field_name, bool val) override;
+
+    std::map<intern_string_t, logline_value_meta> get_field_states() override
+    {
+        std::map<intern_string_t, logline_value_meta> retval;
+
+        for (const auto& vd : this->elf_value_defs) {
+            retval.emplace(vd.first, vd.second->vd_meta);
+        }
+
+        return retval;
+    }
 
     std::shared_ptr<log_format> specialized(int fmt_lock) override;
 

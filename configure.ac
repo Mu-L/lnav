@@ -297,7 +297,7 @@ AS_CASE(["$host_os"],
 
 saved_location=$(pwd)
 cd $srcdir
-version=$(expr $(git describe --abbrev=7 --dirty --always --tags 2>/dev/null) : 'v\([[0-9]]*\.[[0-9]]*\.[[0-9]]*.*\)' 2>/dev/null)
+version=$(echo $(git describe --abbrev=7 --dirty --always --tags 2>/dev/null) | sed -e 's/^v//' 2>/dev/null)
 cd $saved_location
 AS_IF([test $? -eq 0],
     [version=$(echo $version | tr -d '\n')

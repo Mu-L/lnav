@@ -145,7 +145,7 @@ RUN curl -sSL https://www.libssh2.org/download/libssh2-1.11.0.tar.gz | tar xvzC 
         --with-libz-prefix=/fake.root \
         --disable-shared \
         "CPPFLAGS=-I/fake.root/include" \
-        "LDFLAGS=-ldl -L/fake.root/lib" && \
+        "LDFLAGS=-L/fake.root/lib" && \
     make -j2 && \
     make install && \
     cd /extract && rm -rf *
@@ -156,8 +156,7 @@ RUN curl -sSL https://curl.se/download/curl-8.1.2.tar.gz | tar xvzC /extract/ &&
         --disable-shared \
         --with-libssh2=/fake.root \
         --with-ssl=/fake.root \
-        --with-zlib=/fake.root \
-        "LDFLAGS=-ldl" && \
+        --with-zlib=/fake.root && \
     make -j2 && \
     make install && \
     cd /extract && rm -rf *
@@ -174,7 +173,8 @@ LABEL com.github.actions.color="orange"
 RUN apk add --no-cache \
     autoconf \
     automake \
-    build-base
+    build-base \
+    git
 
 COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

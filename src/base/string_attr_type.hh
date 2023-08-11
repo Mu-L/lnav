@@ -344,6 +344,14 @@ identifier(S str)
 
 template<typename S>
 inline std::pair<S, string_attr_pair>
+string(S str)
+{
+    return std::make_pair(std::move(str),
+                          VC_ROLE.template value(role_t::VCR_STRING));
+}
+
+template<typename S>
+inline std::pair<S, string_attr_pair>
 hr(S str)
 {
     return std::make_pair(std::move(str),
@@ -508,6 +516,13 @@ inline std::pair<std::string, string_attr_pair> operator"" _error(
 {
     return std::make_pair(std::string(str, len),
                           VC_ROLE.template value(role_t::VCR_ERROR));
+}
+
+inline std::pair<std::string, string_attr_pair> operator"" _warning(
+    const char* str, std::size_t len)
+{
+    return std::make_pair(std::string(str, len),
+                          VC_ROLE.template value(role_t::VCR_WARNING));
 }
 
 inline std::pair<std::string, string_attr_pair> operator"" _info(

@@ -36,21 +36,14 @@
 #    include <alloca.h>
 #endif
 
-#include <errno.h>
-#include <fcntl.h>
-#include <glob.h>
 #include <locale.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <sys/wait.h>
-#include <termios.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -60,7 +53,6 @@
 #    define _WCHAR_H_CPLUSPLUS_98_CONFORMANCE_
 #endif
 #include <algorithm>
-#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -78,7 +70,6 @@
 #include "base/ansi_vars.hh"
 #include "base/fs_util.hh"
 #include "base/func_util.hh"
-#include "base/future_util.hh"
 #include "base/humanize.hh"
 #include "base/humanize.time.hh"
 #include "base/injector.bind.hh"
@@ -88,16 +79,16 @@
 #include "base/lnav_log.hh"
 #include "base/paths.hh"
 #include "base/string_util.hh"
-#include "bookmarks.hh"
 #include "bottom_status_source.hh"
 #include "bound_tags.hh"
 #include "breadcrumb_curses.hh"
 #include "CLI/CLI.hpp"
 #include "dump_internals.hh"
 #include "environ_vtab.hh"
+#include "file_converter_manager.hh"
 #include "filter_sub_source.hh"
 #include "fstat_vtab.hh"
-#include "grep_proc.hh"
+#include "gantt_source.hh"
 #include "hist_source.hh"
 #include "init-sql.h"
 #include "listview_curses.hh"
@@ -115,6 +106,7 @@
 #include "log_vtab_impl.hh"
 #include "logfile.hh"
 #include "logfile_sub_source.hh"
+#include "md4cpp.hh"
 #include "piper.looper.hh"
 #include "readline_curses.hh"
 #include "readline_highlighters.hh"
@@ -138,7 +130,6 @@
 #include "view_helpers.examples.hh"
 #include "view_helpers.hist.hh"
 #include "views_vtab.hh"
-#include "vt52_curses.hh"
 #include "xpath_vtab.hh"
 #include "xterm_mouse.hh"
 
@@ -156,12 +147,10 @@
 #include "command_executor.hh"
 #include "field_overlay_source.hh"
 #include "hotkeys.hh"
-#include "log_actions.hh"
 #include "readline_callbacks.hh"
 #include "readline_possibilities.hh"
-#include "shlex.hh"
 #include "url_loader.hh"
-#include "yajlpp/yajlpp.hh"
+#include "yajlpp/json_ptr.hh"
 
 #ifndef SYSCONFDIR
 #    define SYSCONFDIR "/usr/etc"
@@ -169,6 +158,7 @@
 
 using namespace std::literals::chrono_literals;
 using namespace lnav::roles::literals;
+using namespace md4cpp::literals;
 
 static std::vector<std::string> DEFAULT_FILES;
 static auto intern_lifetime = intern_string::get_table_lifetime();
@@ -455,10 +445,7 @@ append_default_files()
 static void
 sigint(int sig)
 {
-    static size_t counter = 0;
-
-    lnav_data.ld_looping = false;
-    counter += 1;
+    auto counter = lnav_data.ld_sigint_count.fetch_add(1);
     if (counter >= 3) {
         abort();
     }
@@ -709,28 +696,40 @@ make it easier to navigate through files quickly.
         .append("\n ")
         .append("\u2022"_list_glyph)
         .append(" Format files are read from:")
-        .append("\n    \U0001F4C2 ")
+        .append("\n    ")
+        .append(":open_file_folder:"_emoji)
+        .append(" ")
         .append(lnav::roles::file("/etc/lnav"))
-        .append("\n    \U0001F4C2 ")
+        .append("\n    ")
+        .append(":open_file_folder:"_emoji)
+        .append(" ")
         .append(lnav::roles::file(SYSCONFDIR "/lnav"))
         .append("\n ")
         .append("\u2022"_list_glyph)
         .append(" Configuration, session, and format files are stored in:\n")
-        .append("    \U0001F4C2 ")
+        .append("    ")
+        .append(":open_file_folder:"_emoji)
+        .append(" ")
         .append(lnav::roles::file(lnav::paths::dotlnav().string()))
         .append("\n\n ")
         .append("\u2022"_list_glyph)
         .append(" Local copies of remote files, files extracted from\n")
         .append("   archives, execution output, and so on are stored in:\n")
-        .append("    \U0001F4C2 ")
+        .append("    ")
+        .append(":open_file_folder:"_emoji)
+        .append(" ")
         .append(lnav::roles::file(lnav::paths::workdir().string()))
         .append("\n\n")
         .append("Documentation"_h1)
         .append(": https://docs.lnav.org\n")
         .append("Contact"_h1)
         .append("\n")
-        .append("  \U0001F4AC https://github.com/tstack/lnav/discussions\n")
-        .appendf(FMT_STRING("  \U0001F4EB {}\n"), PACKAGE_BUGREPORT)
+        .append("  ")
+        .append(":speech_balloon:"_emoji)
+        .append(" https://github.com/tstack/lnav/discussions\n")
+        .append("  ")
+        .append(":mailbox:"_emoji)
+        .appendf(FMT_STRING(" {}\n"), PACKAGE_BUGREPORT)
         .append("Version"_h1)
         .appendf(FMT_STRING(": {}"), VCS_PACKAGE_STRING);
 
@@ -1386,6 +1385,7 @@ looper()
 
         lnav_data.ld_user_message_view.set_window(lnav_data.ld_window);
 
+        lnav_data.ld_spectro_details_view.set_title("spectro-details");
         lnav_data.ld_spectro_details_view.set_window(lnav_data.ld_window);
         lnav_data.ld_spectro_details_view.set_show_scrollbar(true);
         lnav_data.ld_spectro_details_view.set_height(5_vl);
@@ -1403,6 +1403,13 @@ looper()
             = &lnav_data.ld_spectro_no_details_source;
         lnav_data.ld_spectro_source->ss_exec_context
             = &lnav_data.ld_exec_context;
+
+        lnav_data.ld_gantt_details_view.set_title("gantt-details");
+        lnav_data.ld_gantt_details_view.set_window(lnav_data.ld_window);
+        lnav_data.ld_gantt_details_view.set_show_scrollbar(false);
+        lnav_data.ld_gantt_details_view.set_height(5_vl);
+        lnav_data.ld_gantt_details_view.set_sub_source(
+            &lnav_data.ld_gantt_details_source);
 
         auto top_status_lifetime
             = injector::bind<top_status_source>::to_scoped_singleton();
@@ -1431,6 +1438,9 @@ looper()
             = std::make_unique<spectro_status_source>();
         lnav_data.ld_status[LNS_SPECTRO].set_data_source(
             lnav_data.ld_spectro_status_source.get());
+        lnav_data.ld_status[LNS_GANTT].set_enabled(false);
+        lnav_data.ld_status[LNS_GANTT].set_data_source(
+            &lnav_data.ld_gantt_status_source);
 
         lnav_data.ld_match_view.set_show_bottom_border(true);
         lnav_data.ld_user_message_view.set_show_bottom_border(true);
@@ -1636,6 +1646,7 @@ looper()
             lnav_data.ld_match_view.do_update();
             lnav_data.ld_preview_view.do_update();
             lnav_data.ld_spectro_details_view.do_update();
+            lnav_data.ld_gantt_details_view.do_update();
             lnav_data.ld_user_message_view.do_update();
             if (ui_clock::now() >= next_status_update_time) {
                 echo_views_stmt.execute();
@@ -1914,6 +1925,8 @@ looper()
                         line_buffer::cleanup_cache();
                         archive_manager::cleanup_cache();
                         tailer::cleanup_cache();
+                        lnav::piper::cleanup();
+                        file_converter_manager::cleanup();
                         ran_cleanup = true;
                     }
                 }
@@ -1924,29 +1937,7 @@ looper()
                         || lnav_data.ld_text_source.text_line_count() > 0
                         || !lnav_data.ld_active_files.fc_other_files.empty()))
                 {
-                    log_debug("restoring view states");
-                    for (size_t view_index = 0; view_index < LNV__MAX;
-                         view_index++)
-                    {
-                        const auto& vs
-                            = session_data.sd_view_states[view_index];
-                        auto& tview = lnav_data.ld_views[view_index];
-
-                        if (vs.vs_top >= 0
-                            && (view_index == LNV_LOG
-                                || tview.get_top() == 0_vl))
-                        {
-                            log_info("restoring %s view top: %d",
-                                     lnav_view_strings[view_index],
-                                     vs.vs_top);
-                            lnav_data.ld_views[view_index].set_top(
-                                vis_line_t(vs.vs_top));
-                            if (vs.vs_selection) {
-                                lnav_data.ld_views[view_index].set_selection(
-                                    vis_line_t(vs.vs_selection.value()));
-                            }
-                        }
-                    }
+                    lnav::session::restore_view_states();
                     if (lnav_data.ld_mode == ln_mode_t::FILES) {
                         if (lnav_data.ld_active_files.fc_name_to_errors.empty())
                         {
@@ -1994,6 +1985,49 @@ looper()
                         == lnav_data.ld_text_source.size()))
             {
                 lnav_data.ld_looping = false;
+            }
+
+            if (lnav_data.ld_sigint_count > 0) {
+                lnav_data.ld_sigint_count = 0;
+                if (lnav_data.ld_view_stack.empty()) {
+                    lnav_data.ld_looping = false;
+                } else {
+                    auto* tc = *lnav_data.ld_view_stack.top();
+
+                    if (tc->get_inner_height() > 0_vl) {
+                        std::vector<attr_line_t> rows(1);
+
+                        tc->get_data_source()->listview_value_for_rows(
+                            *tc, tc->get_selection(), rows);
+                        auto& sa = rows[0].get_attrs();
+                        auto line_attr_opt
+                            = get_string_attr(sa, logline::L_FILE);
+                        bool found = false;
+                        if (line_attr_opt) {
+                            auto lf = line_attr_opt.value().get();
+
+                            log_debug("file name when SIGINT: %s",
+                                      lf->get_filename().c_str());
+                            for (auto& cp : lnav_data.ld_child_pollers) {
+                                auto cp_name = cp.get_filename();
+
+                                if (!cp_name) {
+                                    log_debug("no child_poller");
+                                    continue;
+                                }
+
+                                if (lf->get_filename() == cp_name.value()) {
+                                    log_debug("found it, sending signal!");
+                                    cp.send_sigint();
+                                    found = true;
+                                }
+                            }
+                        }
+                        if (!found) {
+                            lnav_data.ld_looping = false;
+                        }
+                    }
+                }
             }
         }
     } catch (readline_curses::error& e) {
@@ -2099,11 +2133,7 @@ print_user_msgs(std::vector<lnav::console::user_message> error_list,
     return retval;
 }
 
-enum class verbosity_t : int {
-    quiet,
-    standard,
-    verbose,
-};
+verbosity_t verbosity = verbosity_t::standard;
 
 int
 main(int argc, char* argv[])
@@ -2116,7 +2146,6 @@ main(int argc, char* argv[])
     bool exec_stdin = false, load_stdin = false;
     mode_flags_t mode_flags;
     const char* LANG = getenv("LANG");
-    verbosity_t verbosity = verbosity_t::standard;
 
     if (LANG == nullptr || strcmp(LANG, "C") == 0) {
         setenv("LANG", "en_US.UTF-8", 1);
@@ -2138,6 +2167,9 @@ main(int argc, char* argv[])
     if (getenv("LNAVSECURE") != nullptr) {
         lnav_data.ld_flags |= LNF_SECURE_MODE;
     }
+
+    setenv("LNAV_HOME_DIR", lnav::paths::dotlnav().c_str(), 1);
+    setenv("LNAV_WORK_DIR", lnav::paths::workdir().c_str(), 1);
 
     lnav_data.ld_exec_context.ec_sql_callback = sql_callback;
     lnav_data.ld_exec_context.ec_pipe_callback = pipe_callback;
@@ -2711,6 +2743,24 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
         .add_input_delegate(*lnav_data.ld_spectro_source)
         .set_tail_space(4_vl);
     lnav_data.ld_views[LNV_SPECTRO].set_selectable(true);
+    auto gantt_view_source
+        = std::make_shared<gantt_source>(lnav_data.ld_views[LNV_LOG],
+                                         lnav_data.ld_log_source,
+                                         lnav_data.ld_gantt_details_source,
+                                         lnav_data.ld_gantt_status_source);
+    gantt_view_source->gs_exec_context = &lnav_data.ld_exec_context;
+    auto gantt_header_source
+        = std::make_shared<gantt_header_overlay>(gantt_view_source);
+    lnav_data.ld_views[LNV_GANTT]
+        .set_sub_source(gantt_view_source.get())
+        .set_overlay_source(gantt_header_source.get())
+        .set_tail_space(4_vl);
+    lnav_data.ld_views[LNV_GANTT].set_selectable(true);
+
+    auto _gantt_cleanup = finally([] {
+        lnav_data.ld_views[LNV_GANTT].set_sub_source(nullptr);
+        lnav_data.ld_views[LNV_GANTT].set_overlay_source(nullptr);
+    });
 
     lnav_data.ld_doc_view.set_sub_source(&lnav_data.ld_doc_source);
     lnav_data.ld_example_view.set_sub_source(&lnav_data.ld_example_source);
@@ -2843,6 +2893,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
     }
 
     for (auto& file_path : file_args) {
+        scrub_ansi_string(file_path, nullptr);
         auto file_path_without_trailer = file_path;
         auto file_loc = file_location_t{mapbox::util::no_init{}};
         auto_mem<char> abspath;
@@ -2885,7 +2936,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
             isc::to<curl_looper&, services::curl_streamer_t>().send(
                 [ul](auto& clooper) { clooper.add_request(ul); });
         } else if (file_path.find("://") != std::string::npos) {
-            lnav_data.ld_commands.emplace_back(
+            lnav_data.ld_commands.insert(
+                lnav_data.ld_commands.begin(),
                 fmt::format(FMT_STRING(":open {}"), file_path));
         }
 #endif
@@ -3037,7 +3089,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
         retval = EXIT_FAILURE;
     }
 
-    nonstd::optional<ghc::filesystem::path> stdin_pattern;
+    nonstd::optional<std::string> stdin_url;
+    ghc::filesystem::path stdin_dir;
     if (load_stdin && !isatty(STDIN_FILENO) && !is_dev_null(STDIN_FILENO)
         && !exec_stdin)
     {
@@ -3063,7 +3116,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                     STDIN_NAME, auto_fd::dup_of(STDIN_FILENO), auto_fd{});
                 if (stdin_piper_res.isOk()) {
                     auto stdin_piper = stdin_piper_res.unwrap();
-                    stdin_pattern = stdin_piper.get_out_pattern();
+                    stdin_url = stdin_piper.get_url();
+                    stdin_dir = stdin_piper.get_out_dir();
                     lnav_data.ld_active_files
                         .fc_file_names[stdin_piper.get_name()]
                         .with_piper(stdin_piper)
@@ -3216,6 +3270,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                 archive_manager::cleanup_cache();
                 tailer::cleanup_cache();
                 line_buffer::cleanup_cache();
+                lnav::piper::cleanup();
+                file_converter_manager::cleanup();
                 wait_for_pipers();
                 rescan_files(true);
                 isc::to<curl_looper&, services::curl_streamer_t>()
@@ -3290,21 +3346,19 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                     }
 
                     auto* los = tc->get_overlay_source();
+                    attr_line_t ov_al;
+                    while (los != nullptr && tc->get_inner_height() > 0_vl
+                           && los->list_static_overlay(
+                               *tc, y, tc->get_inner_height(), ov_al))
+                    {
+                        write_line_to(stdout, ov_al);
+                        ov_al.clear();
+                        ++y;
+                    }
 
                     vis_line_t vl;
-                    for (vl = tc->get_top(); vl < tc->get_inner_height();
-                         ++vl, ++y)
+                    for (vl = tc->get_top(); vl < tc->get_inner_height(); ++vl)
                     {
-                        attr_line_t al;
-
-                        while (los != nullptr
-                               && los->list_value_for_overlay(
-                                   *tc, y, tc->get_inner_height(), vl, al))
-                        {
-                            write_line_to(stdout, al);
-                            ++y;
-                        }
-
                         std::vector<attr_line_t> rows(1);
                         tc->listview_value_for_rows(*tc, vl, rows);
                         if (suppress_empty_lines && rows[0].empty()) {
@@ -3312,17 +3366,14 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                         }
 
                         write_line_to(stdout, rows[0]);
-                    }
-                    {
-                        attr_line_t al;
 
-                        while (los != nullptr
-                               && los->list_value_for_overlay(
-                                   *tc, y, tc->get_inner_height(), vl, al)
-                               && !al.empty())
-                        {
-                            write_line_to(stdout, al);
-                            ++y;
+                        std::vector<attr_line_t> row_overlay_content;
+                        if (los != nullptr) {
+                            los->list_value_for_overlay(
+                                *tc, vl, row_overlay_content);
+                            for (const auto& ov_row : row_overlay_content) {
+                                write_line_to(stdout, ov_row);
+                            }
                         }
                     }
                 }
@@ -3352,10 +3403,10 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
 
         // When reading from stdin, tell the user where the capture file is
         // stored so they can look at it later.
-        if (stdin_pattern && !(lnav_data.ld_flags & LNF_HEADLESS)) {
+        if (stdin_url && !(lnav_data.ld_flags & LNF_HEADLESS)) {
             file_size_t stdin_size = 0;
-            for (const auto& ent : ghc::filesystem::directory_iterator(
-                     stdin_pattern.value().parent_path()))
+            for (const auto& ent :
+                 ghc::filesystem::directory_iterator(stdin_dir))
             {
                 stdin_size += ent.file_size();
             }
@@ -3371,7 +3422,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                                 "reopen it by running:\n")
                         .appendf(FMT_STRING("   {} "),
                                  lnav_data.ld_program_name)
-                        .append(lnav::roles::file(stdin_pattern.value()))));
+                        .append(lnav::roles::file(stdin_url.value()))));
         }
     }
 

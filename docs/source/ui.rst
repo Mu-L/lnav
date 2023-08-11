@@ -221,6 +221,10 @@ These crumbs are interactive and can be used to navigate to different parts
 of the log view.  For example, selecting a different value in the log format
 crumb will jump to the first message with that format.
 
+The file crumb will show a "↻" icon if the file is from the output of a FIFO,
+:code:`:sh` command, or data that was piped into the standard input.  When
+the pipe is closed, the icon will disappear.
+
 TEXT
 ^^^^
 
@@ -229,6 +233,29 @@ The text view displays files for which lnav could not detect any log messages.
 Press :kbd:`t` to switch to the text view.  While in the text view, you can
 press :kbd:`f` or :kbd:`Shift` + :kbd:`F` to switch to the next / previous
 text file.
+
+The breadcrumb bar will show the name of the file and any structure that was
+discovered in the content.  The file crumb will show a "↻" icon if the file
+is from the output of a FIFO, :code:`:sh` command, or data that was piped
+into the standard input.  When the pipe is closed, the icon will disappear.
+
+If the content is piped into lnav through standard input, a FIFO, or a
+:code:`:sh` command, the time that lines are received are recorded.  You
+can press :kbd:`Shift` + :kbd:`T` to view the elapsed time like in the
+LOG view.  The breadcrumb bar will also show the received time of the
+focused line after the file name crumb.  If the output being shown is from
+a :code:`:sh` command, you can press :kbd:`Ctrl` + :kbd:`C` to send a
+SIGINT to the child process without killing **lnav** itself.
+
+.. figure:: lnav-make-check-log.png
+   :align: center
+   :figwidth: 90%
+
+   Screenshot of the TEXT view showing the output of :code:`sh make check`.
+   Each line is timestamped internally when it was received so it's
+   possible to view how long each test is taking to run.  The "↻" icon
+   next to the file name in the breadcrumb bar means that the make is
+   still running.
 
 Markdown
 """"""""
@@ -268,6 +295,34 @@ Press :kbd:`i` to switch back and forth to the histogram view.  You
 can also press :kbd:`Shift` + :kbd:`i` to toggle the histogram view
 while synchronizing the top time.  While in the histogram view,
 pressing :kbd:`z` / :kbd:`Shift` + :kbd:`z` will zoom in/out.
+
+GANTT
+^^^^^
+
+.. note:: This feature is available in v0.12.0+.
+
+The Gantt Chart view visualizes operations over time.  The operations
+are identified by the "opid" field defined in the log format.  In the
+view, there is a header that shows the overall time span, the
+narrowed time span around the focused line, and the column headers.
+Each row in the view shows the following:
+
+* The duration of the operation
+* Sparklines showing the number of errors and warnings relative to the
+  total number of messages associated with the OPID.
+* The OPID itself.
+* A description of the operation as captured from the log messages.
+
+The rows are sorted by the start time of each operation.
+
+If an operation row is in the focused time span, a reverse-video
+bar will show when the operation started and finished (unless it
+extends outside the time span).  As you move the focused line, the
+focused time span will be adjusted to keep the preceding and following
+five operations within the span.
+
+The preview panel at the bottom of the display will show the
+messages associated with the operation.
 
 PRETTY
 ^^^^^^

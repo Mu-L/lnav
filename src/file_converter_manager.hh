@@ -50,6 +50,8 @@ struct convert_result {
 Result<convert_result, std::string> convert(const external_file_format& eff,
                                             const std::string& filename);
 
+void cleanup();
+
 }  // namespace file_converter_manager
 
 #endif

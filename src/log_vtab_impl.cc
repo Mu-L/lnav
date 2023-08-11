@@ -33,6 +33,7 @@
 #include "base/itertools.hh"
 #include "base/lnav_log.hh"
 #include "base/string_util.hh"
+#include "bookmarks.json.hh"
 #include "config.h"
 #include "hasher.hh"
 #include "lnav_util.hh"
@@ -63,6 +64,7 @@ static const char* LOG_COLUMNS = R"(  (
   log_mark        BOOLEAN,                         -- True if the log message was marked
   log_comment     TEXT,                            -- The comment for this message
   log_tags        TEXT,                            -- A JSON list of tags for this message
+  log_annotations TEXT,                            -- A JSON object of annotations for this messages
   log_filters     TEXT,                            -- A JSON list of filter IDs that matched this message
   -- BEGIN Format-specific fields:
 )";
@@ -155,7 +157,7 @@ log_vtab_impl::get_table_statement()
 
     oss << ");\n";
 
-    log_debug("log_vtab_impl.get_table_statement() -> %s", oss.str().c_str());
+    log_trace("log_vtab_impl.get_table_statement() -> %s", oss.str().c_str());
 
     return oss.str();
 }
@@ -769,6 +771,22 @@ vt_column(sqlite3_vtab_cursor* cur, sqlite3_context* ctx, int col)
                 }
 
                 to_sqlite(ctx, json_string(gen));
+            }
+            break;
+        }
+
+        case VT_COL_LOG_ANNOTATIONS: {
+            auto line_meta_opt
+                = vt->lss->find_bookmark_metadata(vc->log_cursor.lc_curr_line);
+            if (!line_meta_opt
+                || line_meta_opt.value()->bm_annotations.la_pairs.empty())
+            {
+                sqlite3_result_null(ctx);
+            } else {
+                const auto& meta = *(line_meta_opt.value());
+                to_sqlite(ctx,
+                          logmsg_annotations_handlers.to_json_string(
+                              meta.bm_annotations));
             }
             break;
         }
@@ -1918,7 +1936,8 @@ vt_update(sqlite3_vtab* tab,
         const auto* part_name = sqlite3_value_text(argv[2 + VT_COL_PARTITION]);
         const auto* log_comment
             = sqlite3_value_text(argv[2 + VT_COL_LOG_COMMENT]);
-        const auto* log_tags = sqlite3_value_text(argv[2 + VT_COL_LOG_TAGS]);
+        const auto log_tags = from_sqlite<nonstd::optional<string_fragment>>()(
+            argc, argv, 2 + VT_COL_LOG_TAGS);
         bookmark_metadata tmp_bm;
 
         if (log_tags) {
@@ -1937,7 +1956,7 @@ vt_update(sqlite3_vtab* tab,
                     errors.emplace_back(msg);
                 })
                 .with_obj(tmp_bm);
-            ypc.parse_doc(string_fragment{log_tags});
+            ypc.parse_doc(log_tags.value());
             if (!errors.empty()) {
                 auto top_error = lnav::console::user_message::error(
                                      attr_line_t("invalid value for ")
@@ -1946,16 +1965,14 @@ vt_update(sqlite3_vtab* tab,
                                          .append_quoted(lnav::roles::symbol(
                                              vt->vi->get_name().to_string())))
                                      .with_reason(errors[0].to_attr_line({}));
-                auto json_error = lnav::to_json(top_error);
-                tab->zErrMsg
-                    = sqlite3_mprintf("lnav-error:%s", json_error.c_str());
+                set_vtable_errmsg(tab, top_error);
                 return SQLITE_ERROR;
             }
         }
 
         auto& bv = vt->tc->get_bookmarks()[&textview_curses::BM_META];
         bool has_meta = part_name != nullptr || log_comment != nullptr
-            || log_tags != nullptr;
+            || log_tags.has_value();
 
         if (binary_search(bv.begin(), bv.end(), vrowid) && !has_meta) {
             vt->tc->set_user_mark(&textview_curses::BM_META, vrowid, false);

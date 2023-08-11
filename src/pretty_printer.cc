@@ -29,6 +29,10 @@
 
 #include "pretty_printer.hh"
 
+#include <sys/types.h>
+
+#include "base/auto_mem.hh"
+#include "base/intern_string.hh"
 #include "base/string_util.hh"
 #include "config.h"
 
@@ -188,7 +192,7 @@ pretty_printer::write_element(const pretty_printer::element& el)
     }
     ssize_t start_size = this->pp_stream.tellp();
     if (el.e_token == DT_QUOTED_STRING) {
-        auto_mem<char> unquoted_str((char*) malloc(el.e_capture.length() + 1));
+        auto unquoted_str = auto_mem<char>::malloc(el.e_capture.length() + 1);
         const char* start
             = this->pp_scanner->to_string_fragment(el.e_capture).data();
         auto unq_len = unquote(unquoted_str.in(), start, el.e_capture.length());

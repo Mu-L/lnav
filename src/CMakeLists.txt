@@ -103,7 +103,7 @@ function(bin2c)
             DEPENDS bin2c "${FILE_TO_LINK}")
 endfunction(bin2c)
 
-foreach (FILE_TO_LINK animals.json ansi-palette.json diseases.json emojis.json xml-entities.json xterm-palette.json help.txt help.md init.sql words.json)
+foreach (FILE_TO_LINK animals.json ansi-palette.json css-color-names.json diseases.json emojis.json xml-entities.json xterm-palette.json help.txt help.md init.sql words.json)
     string(REPLACE "." "-" DST_FILE "${FILE_TO_LINK}")
     add_custom_command(
             OUTPUT "${DST_FILE}.h" "${DST_FILE}.cc"
@@ -194,7 +194,9 @@ set(BUILTIN_LNAV_SCRIPTS
         scripts/docker-url-handler.lnav
         scripts/lnav-pop-view.lnav
         scripts/partition-by-boot.lnav scripts/rename-stdin.lnav
-        scripts/search-for.lnav)
+        scripts/search-for.lnav
+        scripts/workdir-url-handler.lnav
+)
 
 set(BUILTIN_LNAV_SCRIPT_PATHS ${BUILTIN_LNAV_SCRIPTS})
 
@@ -206,7 +208,7 @@ add_custom_command(
         DEPENDS bin2c ${BUILTIN_LNAV_SCRIPTS})
 list(APPEND GEN_SRCS builtin-scripts.h builtin-scripts.cc)
 
-set(BUILTIN_SH_SCRIPTS scripts/dump-pid.sh scripts/pcap_log-converter.sh)
+set(BUILTIN_SH_SCRIPTS scripts/com.vmware.btresolver.py scripts/dump-pid.sh scripts/pcap_log-converter.sh)
 
 set(BUILTIN_SH_SCRIPT_PATHS ${BUILTIN_SH_SCRIPTS})
 
@@ -326,7 +328,7 @@ add_library(lnavfileio STATIC
         line_buffer.cc
         pollable.cc
         shared_buffer.cc
-        )
+)
 target_include_directories(lnavfileio PRIVATE . ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(lnavfileio cppfmt spookyhash pcrepp base BZip2::BZip2 ZLIB::ZLIB)
 
@@ -362,6 +364,7 @@ add_library(
         fs-extension-functions.cc
         fstat_vtab.cc
         fts_fuzzy_match.cc
+        gantt_source.cc
         help_text.cc
         help_text_formatter.cc
         highlighter.cc
@@ -376,6 +379,7 @@ add_library(
         lnav_commands.cc
         lnav_config.cc
         lnav_util.cc
+        log.annotate.cc
         log.watch.cc
         log_accel.cc
         log_actions.cc
@@ -451,6 +455,8 @@ add_library(
         archive_manager.cfg.hh
         document.sections.hh
         big_array.hh
+        bookmarks.hh
+        bookmarks.json.hh
         bottom_status_source.hh
         bound_tags.hh
         breadcrumb.hh
@@ -472,6 +478,8 @@ add_library(
         filter_sub_source.hh
         fstat_vtab.hh
         fts_fuzzy_match.hh
+        gantt_source.hh
+        gantt_status_source.hh
         grep_highlighter.hh
         hasher.hh
         help_text.hh
@@ -487,6 +495,8 @@ add_library(
         lnav_config.hh
         lnav_config_fwd.hh
         lnav_util.hh
+        log.annotate.hh
+        log.annotate.cfg.hh
         log.watch.hh
         log_actions.hh
         log_data_helper.hh
@@ -610,7 +620,7 @@ target_include_directories(diag PUBLIC . fmtlib ${CMAKE_CURRENT_BINARY_DIR}
         third-party
         third-party/base64/include
         third-party/rapidyaml
-        )
+)
 
 target_link_libraries(
         diag

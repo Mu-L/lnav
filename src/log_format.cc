@@ -27,6 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <algorithm>
 #include <memory>
 
 #include <fnmatch.h>
@@ -49,6 +50,7 @@
 #include "scn/scn.h"
 #include "sql_util.hh"
 #include "sqlite-extension-func.hh"
+#include "sqlitepp.hh"
 #include "yajlpp/yajlpp.hh"
 #include "yajlpp/yajlpp_def.hh"
 
@@ -67,6 +69,50 @@ string_attr_type<bookmark_metadata*> logline::L_META("meta");
 external_log_format::mod_map_t external_log_format::MODULE_FORMATS;
 std::vector<std::shared_ptr<external_log_format>>
     external_log_format::GRAPH_ORDERED_FORMATS;
+
+size_t
+opid_time_range::get_total_msgs() const
+{
+    return std::accumulate(this->otr_level_counts.begin(),
+                           this->otr_level_counts.end(),
+                           size_t{0});
+}
+
+size_t
+opid_time_range::get_error_count() const
+{
+    size_t retval = 0;
+
+    for (const auto level : {
+             log_level_t::LEVEL_ERROR,
+             log_level_t::LEVEL_CRITICAL,
+             log_level_t::LEVEL_FATAL,
+         })
+    {
+        retval += this->otr_level_counts[level];
+    }
+
+    return retval;
+}
+
+opid_time_range&
+opid_time_range::operator|=(const opid_time_range& rhs)
+{
+    if (rhs.otr_begin < this->otr_begin) {
+        this->otr_begin = rhs.otr_begin;
+    }
+    if (this->otr_end < rhs.otr_end) {
+        this->otr_end = rhs.otr_end;
+    }
+    if (this->otr_description.size() < rhs.otr_description.size()) {
+        this->otr_description = rhs.otr_description;
+    }
+    for (size_t lpc = 0; lpc < this->otr_level_counts.size(); lpc++) {
+        this->otr_level_counts[lpc] += rhs.otr_level_counts[lpc];
+    }
+
+    return *this;
+}
 
 struct line_range
 logline_value::origin_in_full_msg(const char* msg, ssize_t len) const
@@ -280,7 +326,7 @@ next_format(
 }
 
 bool
-log_format::next_format(pcre_format* fmt, int& index, int& locked_index)
+log_format::next_format(const pcre_format* fmt, int& index, int& locked_index)
 {
     bool retval = true;
 
@@ -301,7 +347,7 @@ log_format::next_format(pcre_format* fmt, int& index, int& locked_index)
 const char*
 log_format::log_scanf(uint32_t line_number,
                       string_fragment line,
-                      pcre_format* fmt,
+                      const pcre_format* fmt,
                       const char* time_fmt[],
                       struct exttm* tm_out,
                       struct timeval* tv_out,
@@ -329,6 +375,15 @@ log_format::log_scanf(uint32_t line_number,
 
             retval = this->lf_date_time.scan(
                 ts->data(), ts->length(), nullptr, tm_out, *tv_out);
+
+            if (retval == nullptr) {
+                auto ls = this->lf_date_time.unlock();
+                retval = this->lf_date_time.scan(
+                    ts->data(), ts->length(), nullptr, tm_out, *tv_out);
+                if (retval == nullptr) {
+                    this->lf_date_time.relock(ls);
+                }
+            }
 
             if (retval) {
                 *ts_out = ts.value();
@@ -375,7 +430,7 @@ log_format::check_for_new_year(std::vector<logline>& dst,
         off_month = 1;
     } else if (!(etm.et_flags & ETF_DAY_SET) && (diff >= (60 * 60))) {
         off_day = 1;
-    } else if (!(etm.et_flags & ETF_DAY_SET)) {
+    } else if (!(etm.et_flags & ETF_HOUR_SET) && (diff >= 60)) {
         off_hour = 1;
     } else {
         do_change = false;
@@ -451,6 +506,7 @@ struct json_log_userdata {
     uint32_t jlu_quality{0};
     shared_buffer_ref& jlu_shared_buffer;
     scan_batch_context* jlu_batch_context;
+    nonstd::optional<string_fragment> jlu_opid_frag;
 };
 
 static int read_json_field(yajlpp_parse_context* ypc,
@@ -753,6 +809,9 @@ external_log_format::scan(logfile& lf,
 
         const auto* line_data = (const unsigned char*) sbr.get_data();
 
+        this->lf_desc_captures.clear();
+        this->lf_desc_allocator.reset();
+
         yajl_reset(handle);
         ypc.set_static_handler(json_log_handlers.jpc_children[0]);
         ypc.ypc_userdata = &jlu;
@@ -778,6 +837,118 @@ external_log_format::scan(logfile& lf,
 
                 return log_format::scan_no_match{
                     "JSON message does not have expected timestamp property"};
+            }
+
+            if (jlu.jlu_opid_frag) {
+                auto opid_iter = sbc.sbc_opids.find(jlu.jlu_opid_frag.value());
+                if (opid_iter == sbc.sbc_opids.end()) {
+                    auto otr
+                        = opid_time_range{ll.get_timeval(), ll.get_timeval()};
+                    auto emplace_res
+                        = sbc.sbc_opids.emplace(jlu.jlu_opid_frag.value(), otr);
+                    opid_iter = emplace_res.first;
+                } else {
+                    opid_iter->second.otr_end = ll.get_timeval();
+                }
+
+                opid_iter->second.otr_level_counts[ll.get_msg_level()] += 1;
+
+                auto& otr = opid_iter->second;
+                if (!otr.otr_description_id) {
+                    for (const auto& desc_def_pair :
+                         *this->lf_opid_description_def)
+                    {
+                        if (otr.otr_description_id) {
+                            break;
+                        }
+                        for (const auto& desc_def :
+                             *desc_def_pair.second.od_descriptors)
+                        {
+                            auto desc_cap_iter = this->lf_desc_captures.find(
+                                desc_def.od_field.pp_value);
+
+                            if (desc_cap_iter == this->lf_desc_captures.end()) {
+                                continue;
+                            }
+
+                            if (desc_def.od_extractor.pp_value) {
+                                static thread_local auto desc_md
+                                    = lnav::pcre2pp::match_data::unitialized();
+
+                                auto desc_match_res
+                                    = desc_def.od_extractor.pp_value
+                                          ->capture_from(desc_cap_iter->second)
+                                          .into(desc_md)
+                                          .matches(PCRE2_NO_UTF_CHECK)
+                                          .ignore_error();
+                                if (desc_match_res) {
+                                    otr.otr_description_id
+                                        = desc_def_pair.first;
+                                }
+                            } else {
+                                otr.otr_description_id = desc_def_pair.first;
+                            }
+                        }
+                    }
+                }
+
+                if (otr.otr_description_id) {
+                    const auto& desc_def_v
+                        = *this->lf_opid_description_def
+                               ->find(
+                                   opid_iter->second.otr_description_id.value())
+                               ->second.od_descriptors;
+                    auto& desc_v = opid_iter->second.otr_description;
+
+                    if (desc_def_v.size() != desc_v.size()) {
+                        for (size_t desc_def_index = 0;
+                             desc_def_index < desc_def_v.size();
+                             desc_def_index++)
+                        {
+                            const auto& desc_def = desc_def_v[desc_def_index];
+                            auto found_desc = desc_v.begin();
+
+                            for (; found_desc != desc_v.end(); ++found_desc) {
+                                if (found_desc->first == desc_def_index) {
+                                    break;
+                                }
+                            }
+                            auto desc_cap_iter = this->lf_desc_captures.find(
+                                desc_def.od_field.pp_value);
+                            if (desc_cap_iter == this->lf_desc_captures.end()) {
+                                continue;
+                            }
+                            nonstd::optional<std::string> desc_str;
+                            if (desc_def.od_extractor.pp_value) {
+                                static thread_local auto desc_md
+                                    = lnav::pcre2pp::match_data::unitialized();
+
+                                auto match_res
+                                    = desc_def.od_extractor.pp_value
+                                          ->capture_from(desc_cap_iter->second)
+                                          .into(desc_md)
+                                          .matches(PCRE2_NO_UTF_CHECK)
+                                          .ignore_error();
+                                if (match_res) {
+                                    desc_str = desc_md.to_string();
+                                }
+                            } else {
+                                desc_str = desc_cap_iter->second.to_string();
+                            }
+
+                            if (desc_str) {
+                                if (found_desc == desc_v.end()) {
+                                    desc_v.emplace_back(desc_def_index,
+                                                        desc_str.value());
+                                } else {
+                                    found_desc->second.append(
+                                        desc_def.od_joiner);
+                                    found_desc->second.append(desc_str.value());
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             jlu.jlu_sub_line_count += this->jlf_line_format_init_count;
@@ -873,14 +1044,20 @@ external_log_format::scan(logfile& lf,
             ts = string_fragment::from_bytes(combined_datetime_buf, ts_str_len);
         }
 
-        if ((last = this->lf_date_time.scan(ts->data(),
-                                            ts->length(),
-                                            this->get_timestamp_formats(),
-                                            &log_time_tm,
-                                            log_tv))
-            == nullptr)
+        auto level = this->convert_level(
+            level_cap.value_or(string_fragment::invalid()), &sbc);
+
+        if (!ts) {
+            level = log_level_t::LEVEL_INVALID;
+        } else if ((last
+                    = this->lf_date_time.scan(ts->data(),
+                                              ts->length(),
+                                              this->get_timestamp_formats(),
+                                              &log_time_tm,
+                                              log_tv))
+                   == nullptr)
         {
-            this->lf_date_time.unlock();
+            auto ls = this->lf_date_time.unlock();
             if ((last = this->lf_date_time.scan(ts->data(),
                                                 ts->length(),
                                                 this->get_timestamp_formats(),
@@ -888,12 +1065,10 @@ external_log_format::scan(logfile& lf,
                                                 log_tv))
                 == nullptr)
             {
+                this->lf_date_time.relock(ls);
                 continue;
             }
         }
-
-        auto level = this->convert_level(
-            level_cap.value_or(string_fragment::invalid()), &sbc);
 
         this->lf_timestamp_flags = log_time_tm.et_flags;
 
@@ -905,17 +1080,127 @@ external_log_format::scan(logfile& lf,
         }
 
         if (opid_cap && !opid_cap->empty()) {
-            {
-                auto opid_iter = sbc.sbc_opids.find(opid_cap.value());
+            auto opid_iter = sbc.sbc_opids.find(opid_cap.value());
 
-                if (opid_iter == sbc.sbc_opids.end()) {
-                    auto opid_copy = opid_cap->to_owned(sbc.sbc_allocator);
-                    auto otr = opid_time_range{log_tv, log_tv};
-                    sbc.sbc_opids.emplace(opid_copy, otr);
-                } else {
-                    opid_iter->second.otr_end = log_tv;
+            if (opid_iter == sbc.sbc_opids.end()) {
+                auto opid_copy = opid_cap->to_owned(sbc.sbc_allocator);
+                auto otr = opid_time_range{log_tv, log_tv};
+                auto emplace_res = sbc.sbc_opids.emplace(opid_copy, otr);
+                opid_iter = emplace_res.first;
+            } else {
+                opid_iter->second.otr_end = log_tv;
+            }
+
+            opid_iter->second.otr_level_counts[level] += 1;
+
+            auto& otr = opid_iter->second;
+            if (!otr.otr_description_id) {
+                for (const auto& desc_def_pair : *this->lf_opid_description_def)
+                {
+                    if (otr.otr_description_id) {
+                        break;
+                    }
+                    for (const auto& desc_def :
+                         *desc_def_pair.second.od_descriptors)
+                    {
+                        auto desc_field_index_iter
+                            = fpat->p_value_name_to_index.find(
+                                desc_def.od_field.pp_value);
+
+                        if (desc_field_index_iter
+                            != fpat->p_value_name_to_index.end())
+                        {
+                            auto desc_cap_opt
+                                = md[desc_field_index_iter->second];
+
+                            if (desc_cap_opt) {
+                                if (desc_def.od_extractor.pp_value) {
+                                    static thread_local auto desc_md = lnav::
+                                        pcre2pp::match_data::unitialized();
+
+                                    auto desc_match_res
+                                        = desc_def.od_extractor.pp_value
+                                              ->capture_from(
+                                                  desc_cap_opt.value())
+                                              .into(desc_md)
+                                              .matches(PCRE2_NO_UTF_CHECK)
+                                              .ignore_error();
+                                    if (desc_match_res) {
+                                        otr.otr_description_id
+                                            = desc_def_pair.first;
+                                    }
+                                } else {
+                                    otr.otr_description_id
+                                        = desc_def_pair.first;
+                                }
+                            }
+                        }
+                    }
                 }
             }
+
+            if (otr.otr_description_id) {
+                const auto& desc_def_v
+                    = *this->lf_opid_description_def
+                           ->find(opid_iter->second.otr_description_id.value())
+                           ->second.od_descriptors;
+                auto& desc_v = opid_iter->second.otr_description;
+
+                if (desc_def_v.size() != desc_v.size()) {
+                    for (size_t desc_def_index = 0;
+                         desc_def_index < desc_def_v.size();
+                         desc_def_index++)
+                    {
+                        const auto& desc_def = desc_def_v[desc_def_index];
+                        auto found_desc = false;
+
+                        for (const auto& desc_pair : desc_v) {
+                            if (desc_pair.first == desc_def_index) {
+                                found_desc = true;
+                                break;
+                            }
+                        }
+                        if (!found_desc) {
+                            auto desc_field_index_iter
+                                = fpat->p_value_name_to_index.find(
+                                    desc_def.od_field.pp_value);
+
+                            if (desc_field_index_iter
+                                != fpat->p_value_name_to_index.end())
+                            {
+                                auto desc_cap_opt
+                                    = md[desc_field_index_iter->second];
+
+                                if (desc_cap_opt) {
+                                    if (desc_def.od_extractor.pp_value) {
+                                        static thread_local auto desc_md
+                                            = lnav::pcre2pp::match_data::
+                                                unitialized();
+
+                                        auto match_res
+                                            = desc_def.od_extractor.pp_value
+                                                  ->capture_from(
+                                                      desc_cap_opt.value())
+                                                  .into(desc_md)
+                                                  .matches(PCRE2_NO_UTF_CHECK)
+                                                  .ignore_error();
+                                        if (match_res) {
+                                            desc_v.emplace_back(
+                                                desc_def_index,
+                                                desc_md.to_string());
+                                        }
+                                    } else {
+                                        desc_v.emplace_back(
+                                            desc_def_index,
+                                            desc_cap_opt->to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             opid = hash_str(opid_cap->data(), opid_cap->length());
         }
 
@@ -1326,6 +1611,7 @@ read_json_field(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
     const intern_string_t field_name = ypc->get_path();
     struct exttm tm_out;
     struct timeval tv_out;
+    auto frag = string_fragment::from_bytes(str, len);
 
     if (jlu->jlu_format->lf_timestamp_field == field_name) {
         jlu->jlu_format->lf_date_time.scan(
@@ -1344,17 +1630,31 @@ read_json_field(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
                 .ignore_error()
                 .has_value())
         {
-            jlu->jlu_base_line->set_level(jlu->jlu_format->convert_level(
-                string_fragment::from_bytes(str, len), jlu->jlu_batch_context));
+            jlu->jlu_base_line->set_level(
+                jlu->jlu_format->convert_level(frag, jlu->jlu_batch_context));
         }
     }
     if (jlu->jlu_format->elf_level_field == field_name) {
-        jlu->jlu_base_line->set_level(jlu->jlu_format->convert_level(
-            string_fragment::from_bytes(str, len), jlu->jlu_batch_context));
+        jlu->jlu_base_line->set_level(
+            jlu->jlu_format->convert_level(frag, jlu->jlu_batch_context));
     }
     if (jlu->jlu_format->elf_opid_field == field_name) {
         uint8_t opid = hash_str((const char*) str, len);
         jlu->jlu_base_line->set_opid(opid);
+
+        auto& sbc = *jlu->jlu_batch_context;
+        auto opid_iter = sbc.sbc_opids.find(frag);
+        if (opid_iter == sbc.sbc_opids.end()) {
+            jlu->jlu_opid_frag = frag.to_owned(sbc.sbc_allocator);
+        } else {
+            jlu->jlu_opid_frag = opid_iter->first;
+        }
+    }
+
+    if (jlu->jlu_format->lf_desc_fields.contains(field_name)) {
+        auto frag_copy = frag.to_owned(jlu->jlu_format->lf_desc_allocator);
+
+        jlu->jlu_format->lf_desc_captures.emplace(field_name, frag_copy);
     }
 
     jlu->add_sub_lines_for(
@@ -1789,6 +2089,11 @@ external_log_format::get_subline(const logline& ll,
                         break;
                     }
                 }
+                lv.lv_origin.lr_end = this->jlf_cached_line.size() - 1;
+                if (lv.lv_meta.lvm_name == this->elf_opid_field) {
+                    this->jlf_line_attrs.emplace_back(lv.lv_origin,
+                                                      logline::L_OPID.value());
+                }
             }
         }
 
@@ -1845,6 +2150,8 @@ struct compiled_header_expr {
 };
 
 struct format_header_expressions : public lnav_config_listener {
+    format_header_expressions() : lnav_config_listener(__FILE__) {}
+
     auto_sqlite3 e_db;
     std::map<intern_string_t, std::map<std::string, compiled_header_expr>>
         e_header_exprs;
@@ -2071,6 +2378,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                 ivd.ivd_value_def = vd;
                 pat.p_value_by_index.push_back(ivd);
             }
+            pat.p_value_name_to_index[name] = named_cap.get_index();
         }
 
         stable_sort(pat.p_value_by_index.begin(), pat.p_value_by_index.end());
@@ -2089,6 +2397,16 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                         break;
                 }
             }
+        }
+
+        if (!pat.p_module_format && pat.p_timestamp_field_index == -1) {
+            errors.emplace_back(
+                lnav::console::user_message::error(
+                    attr_line_t("invalid pattern: ")
+                        .append_quoted(lnav::roles::symbol(pat.p_config_path)))
+                    .with_reason("no timestamp capture found in the pattern")
+                    .with_snippets(this->get_snippets())
+                    .with_help("all log messages need a timestamp"));
         }
 
         if (!this->elf_level_field.empty() && pat.p_level_field_index == -1) {
@@ -2308,6 +2626,25 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
         }
     }
 
+    for (const auto& opid_desc_pair : *this->lf_opid_description_def) {
+        for (const auto& opid_desc : *opid_desc_pair.second.od_descriptors) {
+            auto iter = this->elf_value_defs.find(opid_desc.od_field.pp_value);
+            if (iter == this->elf_value_defs.end()) {
+                errors.emplace_back(
+                    lnav::console::user_message::error(
+                        attr_line_t("invalid opid description field ")
+                            .append_quoted(lnav::roles::symbol(
+                                opid_desc.od_field.pp_path.to_string())))
+                        .with_reason(
+                            attr_line_t("unknown value name ")
+                                .append_quoted(opid_desc.od_field.pp_value))
+                        .with_snippets(this->get_snippets()));
+            } else {
+                this->lf_desc_fields.insert(iter->first);
+            }
+        }
+    }
+
     if (this->elf_type == elf_type_t::ELF_TYPE_TEXT
         && this->elf_samples.empty())
     {
@@ -2418,14 +2755,36 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
             if (ts_cap && ts_cap->sf_begin == 0) {
                 pat.p_timestamp_end = ts_cap->sf_end;
             }
-            if (ts_cap
-                && dts.scan(ts_cap->data(),
-                            ts_cap->length(),
-                            custom_formats,
-                            &tm,
-                            tv)
-                    == nullptr)
-            {
+            const char* dts_scan_res = nullptr;
+
+            if (ts_cap) {
+                dts_scan_res = dts.scan(
+                    ts_cap->data(), ts_cap->length(), custom_formats, &tm, tv);
+            }
+            if (dts_scan_res != nullptr) {
+                if (dts_scan_res != ts_cap->data() + ts_cap->length()) {
+                    auto match_len = dts_scan_res - ts_cap->data();
+                    auto notes = attr_line_t("the used timestamp format: ");
+                    if (custom_formats == nullptr) {
+                        notes.append(PTIMEC_FORMATS[dts.dts_fmt_lock].pf_fmt);
+                    } else {
+                        notes.append(custom_formats[dts.dts_fmt_lock]);
+                    }
+                    notes.append("\n  ")
+                        .append(ts_cap.value())
+                        .append("\n")
+                        .append(2 + match_len, ' ')
+                        .append("^ matched up to here"_snippet_border);
+                    auto um
+                        = lnav::console::user_message::warning(
+                              attr_line_t("timestamp was not fully matched: ")
+                                  .append_quoted(ts_cap.value()))
+                              .with_snippet(elf_sample.s_line.to_snippet())
+                              .with_note(notes);
+
+                    errors.emplace_back(um);
+                }
+            } else {
                 attr_line_t notes;
 
                 if (custom_formats == nullptr) {
@@ -3351,6 +3710,10 @@ external_log_format::get_pattern_name(uint64_t line_number) const
 int
 log_format::pattern_index_for_line(uint64_t line_number) const
 {
+    if (this->lf_pattern_locks.empty()) {
+        return -1;
+    }
+
     auto iter = lower_bound(this->lf_pattern_locks.cbegin(),
                             this->lf_pattern_locks.cend(),
                             line_number,
@@ -3378,7 +3741,9 @@ log_format::get_pattern_name(uint64_t line_number) const
     char pat_str[128];
 
     int pat_index = this->pattern_index_for_line(line_number);
-    snprintf(pat_str, sizeof(pat_str), "builtin (%d)", pat_index);
+    auto to_n_res = fmt::format_to_n(
+        pat_str, sizeof(pat_str) - 1, FMT_STRING("builtin ({})"), pat_index);
+    pat_str[to_n_res.size] = '\0';
     return intern_string::lookup(pat_str);
 }
 

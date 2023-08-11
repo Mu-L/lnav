@@ -37,10 +37,9 @@
 #include "base/injector.hh"
 #include "base/time_util.hh"
 #include "config.h"
-#include "data_parser.hh"
 #include "fmt/format.h"
 #include "lnav_config.hh"
-#include "log_format.hh"
+#include "log_format_fwd.hh"
 #include "logfile.hh"
 #include "shlex.hh"
 #include "view_curses.hh"
@@ -82,7 +81,7 @@ text_filter::add_line(logfile_filter_state& lfs,
                       logfile::const_iterator ll,
                       const shared_buffer_ref& line)
 {
-    bool match_state = this->matches(*lfs.tfs_logfile, ll, line);
+    bool match_state = this->matches(line_source{*lfs.tfs_logfile, ll}, line);
 
     if (ll->is_message()) {
         this->end_of_message(lfs);
@@ -182,7 +181,8 @@ const bookmark_type_t textview_curses::BM_USER_EXPR("user-expr");
 const bookmark_type_t textview_curses::BM_SEARCH("search");
 const bookmark_type_t textview_curses::BM_META("meta");
 
-textview_curses::textview_curses() : tc_search_action(noop_func{})
+textview_curses::textview_curses()
+    : lnav_config_listener(__FILE__), tc_search_action(noop_func{})
 {
     this->set_data_source(this);
 }
@@ -226,19 +226,7 @@ textview_curses::reload_config(error_reporter& reporter)
         }
 
         for (const auto& hl_pair : theme_iter->second.lt_highlights) {
-            if (hl_pair.second.hc_regex.empty()) {
-                continue;
-            }
-
-            auto regex = lnav::pcre2pp::code::from(hl_pair.second.hc_regex);
-
-            if (regex.isErr()) {
-                const static intern_string_t PATTERN_SRC
-                    = intern_string::lookup("pattern");
-
-                auto ce = regex.unwrapErr();
-                reporter(&hl_pair.second.hc_regex,
-                         lnav::console::to_user_message(PATTERN_SRC, ce));
+            if (hl_pair.second.hc_regex.pp_value == nullptr) {
                 continue;
             }
 
@@ -283,7 +271,7 @@ textview_curses::reload_config(error_reporter& reporter)
                 attrs.ta_attrs |= A_UNDERLINE;
             }
             this->tc_highlights[{highlight_source_t::THEME, hl_pair.first}]
-                = highlighter(regex.unwrap().to_shared())
+                = highlighter(hl_pair.second.hc_regex.pp_value)
                       .with_attrs(attrs)
                       .with_color(fg, bg)
                       .with_nestable(false);
@@ -556,57 +544,6 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
     if (this->tc_hide_fields) {
         value_out.apply_hide();
     }
-
-#if 0
-    typedef std::map<std::string, role_t> key_map_t;
-    static key_map_t key_roles;
-
-    data_scanner ds(str);
-    data_parser  dp(&ds);
-
-    dp.parse();
-
-    for (list<data_parser::element>::iterator iter = dp.dp_stack.begin();
-         iter != dp.dp_stack.end();
-         ++iter) {
-        view_colors &vc = view_colors::singleton();
-
-        if (iter->e_token == DNT_PAIR) {
-            list<data_parser::element>::iterator pair_iter;
-            key_map_t::iterator km_iter;
-            data_token_t        value_token;
-            struct line_range   lr;
-            string key;
-
-            value_token =
-                iter->e_sub_elements->back().e_sub_elements->front().e_token;
-            if (value_token == DT_STRING) {
-                continue;
-            }
-
-            lr.lr_start = iter->e_capture.c_begin;
-            lr.lr_end   = iter->e_capture.c_end;
-
-            key = ds.get_input().get_substr(
-                &iter->e_sub_elements->front().e_capture);
-            if ((km_iter = key_roles.find(key)) == key_roles.end()) {
-                key_roles[key] = vc.next_highlight();
-            }
-            /* fprintf(stderr, "key = %s\n", key.c_str()); */
-            sa[lr].insert(make_string_attr("style",
-                                           vc.attrs_for_role(key_roles[key])));
-
-            pair_iter = iter->e_sub_elements->begin();
-            ++pair_iter;
-
-            lr.lr_start = pair_iter->e_capture.c_begin;
-            lr.lr_end   = pair_iter->e_capture.c_end;
-            sa[lr].insert(make_string_attr("style",
-                                           COLOR_PAIR(view_colors::VC_WHITE) |
-                                           A_BOLD));
-        }
-    }
-#endif
 
     const auto& user_marks = this->tc_bookmarks[&BM_USER];
     const auto& user_expr_marks = this->tc_bookmarks[&BM_USER_EXPR];
@@ -915,8 +852,7 @@ text_time_translator::data_reloaded(textview_curses* tc)
 template class bookmark_vector<vis_line_t>;
 
 bool
-empty_filter::matches(const logfile& lf,
-                      logfile::const_iterator ll,
+empty_filter::matches(nonstd::optional<line_source> ls,
                       const shared_buffer_ref& line)
 {
     return false;

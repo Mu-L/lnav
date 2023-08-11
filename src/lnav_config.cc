@@ -102,6 +102,9 @@ static auto uh = injector::bind<lnav::url_handler::config>::to_instance(
 static auto lsc = injector::bind<logfile_sub_source_ns::config>::to_instance(
     +[]() { return &lnav_config.lc_log_source; });
 
+static auto annoc = injector::bind<lnav::log::annotate::config>::to_instance(
+    +[]() { return &lnav_config.lc_log_annotations; });
+
 static auto tssc = injector::bind<top_status_source_cfg>::to_instance(
     +[]() { return &lnav_config.lc_top_status_cfg; });
 
@@ -140,7 +143,11 @@ ensure_dotlnav()
     for (const auto* sub_path : subdirs) {
         auto full_path = path / sub_path;
 
-        log_perror(mkdir(full_path.c_str(), 0755));
+        if (mkdir(full_path.c_str(), 0755) == -1 && errno != EEXIST) {
+            log_error("unable to make directory: %s -- %s",
+                      full_path.c_str(),
+                      strerror(errno));
+        }
     }
 
     auto crash_dir_path = path / "crash";
@@ -1074,6 +1081,14 @@ static const struct json_path_container piper_handlers = {
         .with_min_value(2)
         .with_description("The number of rotated files to keep")
         .for_field(&_lnav_config::lc_piper, &lnav::piper::config::c_rotations),
+    yajlpp::property_handler("ttl")
+        .with_synopsis("<duration>")
+        .with_description(
+            "The time-to-live for captured data, expressed as a duration "
+            "(e.g. '3d' for three days)")
+        .with_example("3d")
+        .with_example("12h")
+        .for_field(&_lnav_config::lc_piper, &lnav::piper::config::c_ttl),
 };
 
 static const struct json_path_container file_vtab_handlers = {
@@ -1230,7 +1245,7 @@ static const struct json_path_container log_source_watch_expr_handlers = {
 };
 
 static const struct json_path_container log_source_watch_handlers = {
-    yajlpp::pattern_property_handler("(?<watch_name>[\\w\\-]+)")
+    yajlpp::pattern_property_handler("(?<watch_name>[\\w\\.\\-]+)")
         .with_synopsis("<name>")
         .with_description("A log message watch expression")
         .with_obj_provider<logfile_sub_source_ns::watch_expression,
@@ -1254,10 +1269,51 @@ static const struct json_path_container log_source_watch_handlers = {
         .with_children(log_source_watch_expr_handlers),
 };
 
+static const struct json_path_container annotation_handlers = {
+    yajlpp::property_handler("description")
+        .with_synopsis("<text>")
+        .with_description("A description of this annotation")
+        .for_field(&lnav::log::annotate::annotation_def::a_description),
+    yajlpp::property_handler("condition")
+        .with_synopsis("<SQL-expression>")
+        .with_description(
+            "The SQLite expression to execute for a log message that "
+            "determines whether or not this annotation is applicable.  The "
+            "expression is evaluated the same way as a filter expression")
+        .with_min_length(1)
+        .for_field(&lnav::log::annotate::annotation_def::a_condition),
+    yajlpp::property_handler("handler")
+        .with_synopsis("<script>")
+        .with_description("The script to execute to generate the annotation "
+                          "content. A JSON object with the log message content "
+                          "will be sent to the script on the standard input")
+        .with_min_length(1)
+        .for_field(&lnav::log::annotate::annotation_def::a_handler),
+};
+
+static const struct json_path_container annotations_handlers = {
+    yajlpp::pattern_property_handler(R"((?<annotation_name>[\w\.\-]+))")
+        .with_obj_provider<lnav::log::annotate::annotation_def, _lnav_config>(
+            [](const yajlpp_provider_context& ypc, _lnav_config* root) {
+                auto* retval = &(root->lc_log_annotations
+                                     .a_definitions[ypc.get_substr_i(0)]);
+
+                return retval;
+            })
+        .with_path_provider<_lnav_config>(
+            [](struct _lnav_config* cfg, std::vector<std::string>& paths_out) {
+                for (const auto& iter : cfg->lc_log_annotations.a_definitions) {
+                    paths_out.emplace_back(iter.first.to_string());
+                }
+            })
+        .with_children(annotation_handlers),
+};
+
 static const struct json_path_container log_source_handlers = {
     yajlpp::property_handler("watch-expressions")
         .with_description("Log message watch expressions")
         .with_children(log_source_watch_handlers),
+    yajlpp::property_handler("annotations").with_children(annotations_handlers),
 };
 
 static const struct json_path_container url_scheme_handlers = {
@@ -1340,10 +1396,10 @@ read_id(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
         }
         ypc->report_error(
             lnav::console::user_message::error(
-                attr_line_t("'")
-                    .append(lnav::roles::symbol(file_id))
+                attr_line_t()
+                    .append_quoted(lnav::roles::symbol(file_id))
                     .append(
-                        "' is not a supported configuration $schema version"))
+                        " is not a supported configuration $schema version"))
                 .with_snippet(ypc->get_snippet())
                 .with_note(notes)
                 .with_help(handler->get_help_text(ypc)));
@@ -1378,6 +1434,8 @@ const json_path_container lnav_config_handlers = json_path_container {
 
 class active_key_map_listener : public lnav_config_listener {
 public:
+    active_key_map_listener() : lnav_config_listener(__FILE__) {}
+
     void reload_config(error_reporter& reporter) override
     {
         lnav_config.lc_active_keymap = lnav_config.lc_ui_keymaps["default"];
@@ -1450,11 +1508,10 @@ load_config_from(_lnav_config& lconfig,
                     .with_errno_reason());
         }
     } else {
-        auto_mem<yajl_handle_t> handle(yajl_free);
         char buffer[2048];
         ssize_t rc = -1;
 
-        handle = yajl_alloc(&ypc.ypc_callbacks, nullptr, &ypc);
+        auto handle = yajlpp::alloc_handle(&ypc.ypc_callbacks, &ypc);
         yajl_config(handle, yajl_allow_comments, 1);
         yajl_config(handle, yajl_allow_multiple_values, 1);
         ypc.ypc_handle = handle;
@@ -1490,10 +1547,10 @@ load_default_config(struct _lnav_config& config_obj,
 {
     yajlpp_parse_context ypc_builtin(intern_string::lookup(bsf.get_name()),
                                      &lnav_config_handlers);
-    auto_mem<yajl_handle_t> handle(yajl_free);
     struct config_userdata ud(errors);
 
-    handle = yajl_alloc(&ypc_builtin.ypc_callbacks, nullptr, &ypc_builtin);
+    auto handle
+        = yajlpp::alloc_handle(&ypc_builtin.ypc_callbacks, &ypc_builtin);
     ypc_builtin.ypc_locations = &lnav_config_locations;
     ypc_builtin.with_handle(handle);
     ypc_builtin.with_obj(config_obj);
@@ -1507,9 +1564,7 @@ load_default_config(struct _lnav_config& config_obj,
 
     yajl_config(handle, yajl_allow_comments, 1);
     yajl_config(handle, yajl_allow_multiple_values, 1);
-    if (ypc_builtin.parse(bsf.to_string_fragment()) == yajl_status_ok) {
-        ypc_builtin.complete_parse();
-    }
+    ypc_builtin.parse_doc(bsf.to_string_fragment());
 
     return path == "*" || ypc_builtin.ypc_active_paths.empty();
 }

@@ -6,7 +6,8 @@
         },
         "piper": {
             "max-size": 10485760,
-            "rotations": 4
+            "rotations": 4,
+            "ttl": "2d"
         },
         "file-vtab": {
             "max-content-size": 33554432
@@ -106,6 +107,9 @@
             },
             "hw": {
                 "handler": "hw-url-handler"
+            },
+            "piper": {
+                "handler": "piper-url-handler"
             }
         }
     },
@@ -1682,8 +1686,8 @@
                     },
                     "cursor-line": {
                         "color": "$cyan",
-                        "background-color": "$red",
-                        "underline": true,
+                        "background-color": "#d7005f",
+                        "underline": false,
                         "bold": true
                     },
                     "adjusted-time": {
@@ -3610,64 +3614,6 @@
             "mode": "top"
         },
         "keymap-defs": {
-            "us": {
-                "x21": {
-                    "command": ":goto last 10 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x23": {
-                    "command": ":goto last 30 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x24": {
-                    "command": ":goto last 40 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x25": {
-                    "command": ":goto last 50 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x31": {
-                    "command": ":goto next 10 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x32": {
-                    "command": ":goto next 20 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x33": {
-                    "command": ":goto next 30 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x34": {
-                    "command": ":goto next 40 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x35": {
-                    "command": ":goto next 50 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x36": {
-                    "command": ":goto next hour",
-                    "alt-msg": ""
-                },
-                "x37": {
-                    "command": ":goto previous minute",
-                    "alt-msg": ""
-                },
-                "x38": {
-                    "command": ":goto next minute",
-                    "alt-msg": ""
-                },
-                "x40": {
-                    "command": ":goto last 20 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x5e": {
-                    "command": ":goto last hour",
-                    "alt-msg": ""
-                }
-            },
             "de": {
                 "x21": {
                     "command": ":goto last 10 minutes after the hour",
@@ -3723,74 +3669,6 @@
                 },
                 "xc2xa7": {
                     "command": ":goto last 30 minutes after the hour",
-                    "alt-msg": ""
-                }
-            },
-            "uk": {
-                "x22": {
-                    "command": ":goto last 20 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "xc2xa3": {
-                    "command": ":goto last 30 minutes after the hour",
-                    "alt-msg": ""
-                }
-            },
-            "fr": {
-                "x22": {
-                    "command": ":goto next 30 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x26": {
-                    "command": ":goto next 10 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x27": {
-                    "command": ":goto next 40 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x28": {
-                    "command": ":goto next 50 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x2d": {
-                    "command": ":goto next hour",
-                    "alt-msg": ""
-                },
-                "x31": {
-                    "command": ":goto last 10 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x32": {
-                    "command": ":goto last 20 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x33": {
-                    "command": ":goto last 30 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x34": {
-                    "command": ":goto last 40 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x35": {
-                    "command": ":goto last 50 minutes after the hour",
-                    "alt-msg": ""
-                },
-                "x36": {
-                    "command": ":goto last hour",
-                    "alt-msg": ""
-                },
-                "x37": {
-                    "command": ":goto previous minute",
-                    "alt-msg": ""
-                },
-                "xc3xa8": {
-                    "command": ":goto next minute",
-                    "alt-msg": ""
-                },
-                "xc3xa9": {
-                    "command": ":goto next 20 minutes after the hour",
                     "alt-msg": ""
                 }
             },
@@ -3976,6 +3854,64 @@
                     "alt-msg": "${keymap_def_prev_location}"
                 }
             },
+            "fr": {
+                "x22": {
+                    "command": ":goto next 30 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x26": {
+                    "command": ":goto next 10 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x27": {
+                    "command": ":goto next 40 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x28": {
+                    "command": ":goto next 50 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x2d": {
+                    "command": ":goto next hour",
+                    "alt-msg": ""
+                },
+                "x31": {
+                    "command": ":goto last 10 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x32": {
+                    "command": ":goto last 20 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x33": {
+                    "command": ":goto last 30 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x34": {
+                    "command": ":goto last 40 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x35": {
+                    "command": ":goto last 50 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x36": {
+                    "command": ":goto last hour",
+                    "alt-msg": ""
+                },
+                "x37": {
+                    "command": ":goto previous minute",
+                    "alt-msg": ""
+                },
+                "xc3xa8": {
+                    "command": ":goto next minute",
+                    "alt-msg": ""
+                },
+                "xc3xa9": {
+                    "command": ":goto next 20 minutes after the hour",
+                    "alt-msg": ""
+                }
+            },
             "sv": {
                 "x22": {
                     "command": ":goto last 20 minutes after the hour",
@@ -4001,12 +3937,92 @@
                     "command": ":goto last 40 minutes after the hour",
                     "alt-msg": ""
                 }
+            },
+            "uk": {
+                "x22": {
+                    "command": ":goto last 20 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "xc2xa3": {
+                    "command": ":goto last 30 minutes after the hour",
+                    "alt-msg": ""
+                }
+            },
+            "us": {
+                "x21": {
+                    "command": ":goto last 10 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x23": {
+                    "command": ":goto last 30 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x24": {
+                    "command": ":goto last 40 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x25": {
+                    "command": ":goto last 50 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x31": {
+                    "command": ":goto next 10 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x32": {
+                    "command": ":goto next 20 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x33": {
+                    "command": ":goto next 30 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x34": {
+                    "command": ":goto next 40 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x35": {
+                    "command": ":goto next 50 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x36": {
+                    "command": ":goto next hour",
+                    "alt-msg": ""
+                },
+                "x37": {
+                    "command": ":goto previous minute",
+                    "alt-msg": ""
+                },
+                "x38": {
+                    "command": ":goto next minute",
+                    "alt-msg": ""
+                },
+                "x40": {
+                    "command": ":goto last 20 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x5e": {
+                    "command": ":goto last hour",
+                    "alt-msg": ""
+                }
             }
         }
     },
     "log": {
         "watch-expressions": {
 
+        },
+        "annotations": {
+            "com.vmware.vmacore.backtrace": {
+                "description": "Convert a vmacore backtrace into human-readable text",
+                "condition": ":log_body LIKE '%[context]%[/context]%'",
+                "handler": "com.vmware.btresolver.py"
+            },
+            "org.lnav.test": {
+                "description": "test annotation",
+                "condition": ":c_ip IS NOT NULL AND $TEST_ANNO = '1'",
+                "handler": "anno-test.sh"
+            }
         }
     },
     "global": {

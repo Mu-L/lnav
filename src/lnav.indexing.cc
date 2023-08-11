@@ -29,10 +29,12 @@
 
 #include "lnav.indexing.hh"
 
+#include "bound_tags.hh"
 #include "lnav.events.hh"
 #include "lnav.hh"
 #include "service_tags.hh"
 #include "session_data.hh"
+#include "sql_util.hh"
 
 using namespace std::chrono_literals;
 
@@ -167,8 +169,11 @@ public:
 
     void scanned_file(const std::shared_ptr<logfile>& lf) override
     {
-        if (!lnav_data.ld_files_to_front.empty()
-            && lnav_data.ld_files_to_front.front().first == lf->get_filename())
+        const auto& ftf = lnav_data.ld_files_to_front;
+
+        if (!ftf.empty()
+            && (ftf.front().first == lf->get_filename()
+                || ftf.front().first == lf->get_open_options().loo_filename))
         {
             this->front_file = lf;
             this->front_top = lnav_data.ld_files_to_front.front().second;
@@ -191,7 +196,7 @@ rebuild_indexes(nonstd::optional<ui_clock::time_point> deadline)
     bool scroll_downs[LNV__MAX];
     size_t retval = 0;
 
-    for (int lpc = 0; lpc < LNV__MAX; lpc++) {
+    for (auto lpc : {LNV_LOG, LNV_TEXT}) {
         auto& view = lnav_data.ld_views[lpc];
 
         if (view.is_selectable()) {
@@ -330,7 +335,7 @@ rebuild_indexes(nonstd::optional<ui_clock::time_point> deadline)
         retval += 1;
     }
 
-    for (int lpc = 0; lpc < LNV__MAX; lpc++) {
+    for (auto lpc : {LNV_LOG, LNV_TEXT}) {
         auto& scroll_view = lnav_data.ld_views[lpc];
 
         if (scroll_downs[lpc]) {
@@ -348,8 +353,16 @@ rebuild_indexes(nonstd::optional<ui_clock::time_point> deadline)
         }
     }
 
-    lnav_data.ld_view_stack.top() | [](auto tc) {
-        lnav_data.ld_filter_status_source.update_filtered(tc->get_sub_source());
+    lnav_data.ld_view_stack.top() | [&closed_files](auto tc) {
+        if (!closed_files.empty() && tc == &lnav_data.ld_views[LNV_GANTT]) {
+            auto* gantt_source = lnav_data.ld_views[LNV_GANTT].get_sub_source();
+            if (gantt_source != nullptr) {
+                gantt_source->text_filters_changed();
+            }
+        }
+
+        auto* tss = tc->get_sub_source();
+        lnav_data.ld_filter_status_source.update_filtered(tss);
         lnav_data.ld_scroll_broadcaster(tc);
     };
 

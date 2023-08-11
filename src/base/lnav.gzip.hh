@@ -34,11 +34,26 @@
 
 #include <string>
 
+#include <sys/time.h>
+
 #include "auto_mem.hh"
 #include "result.h"
 
 namespace lnav {
 namespace gzip {
+
+struct header {
+    timeval h_mtime{};
+    auto_buffer h_extra{auto_buffer::alloc(0)};
+    std::string h_name;
+    std::string h_comment;
+
+    bool empty() const
+    {
+        return this->h_mtime.tv_sec == 0 && this->h_extra.empty()
+            && this->h_name.empty() && this->h_comment.empty();
+    }
+};
 
 bool is_gzipped(const char* buffer, size_t len);
 

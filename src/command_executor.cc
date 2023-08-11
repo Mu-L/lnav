@@ -370,9 +370,13 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
 
             switch (retcode) {
                 case SQLITE_OK:
-                case SQLITE_DONE:
+                case SQLITE_DONE: {
+                    auto changes = sqlite3_changes(lnav_data.ld_db.in());
+
+                    log_info("sqlite3_changes() -> %d", changes);
                     done = true;
                     break;
+                }
 
                 case SQLITE_ROW:
                     ec.ec_sql_callback(ec, stmt.in());
@@ -967,7 +971,7 @@ pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
     if (out) {
         FILE* file = *out;
 
-        return std::async(std::launch::async, [&fd, file]() {
+        return std::async(std::launch::async, [fd = std::move(fd), file]() {
             char buffer[1024];
             ssize_t rc;
 
@@ -991,6 +995,17 @@ pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
     }
 
     auto tmp_pair = open_temp_res.unwrap();
+
+    auto reader = std::thread(
+        [in_fd = std::move(fd), out_fd = std::move(tmp_pair.second)]() {
+            char buffer[1024];
+            ssize_t rc;
+
+            while ((rc = read(in_fd, buffer, sizeof(buffer))) > 0) {
+                write(out_fd, buffer, rc);
+            }
+        });
+    reader.detach();
 
     static int exec_count = 0;
     auto desc

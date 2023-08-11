@@ -1,6 +1,11 @@
 ## lnav v0.12.0
 
 Features:
+* Added a Gantt Chart view to visualize operations over time
+  based on the "opid" in log messages.  The view shows
+  the operation IDs, a description of the operation captured
+  from log messages, and a bar representing the period of
+  time that the operation was running.
 * Added the `:sh` command and `-e` option to execute a shell
   command-line and display its output within **lnav**.   The
   captured output will be displayed in the TEXT view.  The
@@ -30,21 +35,45 @@ Features:
   the logs for a container (e.g. `docker://my-container`) or
   files within a container (e.g.
   `docker://my-serv/var/log/dpkg.log`).
+* Added an `:annotate` command that can trigger a call-out
+  to a script to analyze a log message and generate an
+  annotation that is attached to the message.  The script
+  is executed asynchronously, so it will not block input
+  and the result is saved in the session.  Annotations are
+  defined in the `/log/annotations` configuration property.
 * Added the SQLite JSON functions to the online help.
 * Added `config get` and `config blame` management CLI
   commands to get the current configuration and the file
   locations where the configuration options came from.
-
-Bug Fixes:
 * When piping data into **lnav**'s stdin, the input used to
   only be written to a single file without any rotation.
   Now, the input is written to a directory of rotating files.
   The same is true for the command-lines executed through the
-  new `:sh` command.
+  new `:sh` command.  The piped data can be managed using the
+  new `piper` commands in the management CLI.
+* The `$LNAV_HOME_DIR` and `$LNAV_WORK_DIR` environment
+  variables are now defined inside **lnav** and refer to
+  the location of the user's configuration directory and
+  the directory where cached data is stored, respectively.
+* The `<pre>` tag is now recognized in Markdown files.
+* The `style` attribute in `<span>` tags is now supported.
+  The following CSS properties and values are supported:
+  * `color` and `background-color` with CSS color names
+  * `font-weight` with a value of `bold` or `bolder`
+  * `text-decoration` with `underline`
+  * `border-left` and `border-right` with the `solid`,
+    `dashed` and `dotted` line styles and colors.
+
+Bug Fixes:
 * Binary data piped into stdin should now be treated the same
   as if it was in a file that was passed on the command-line.
 * The `-I` option is now recognized in the management CLI
   (i.e. when you run **lnav** with the `-m` flag).
+* Fields in the bro and w3c log formats that were hidden are
+  now saved in the session and restored.
+* A warning will now be issued if a timestamp in a log format's
+  sample message does not match completely.  Warnings in the
+  configuration can be viewed by passing the `-W` flag.
 
 Interface changes:
 * The DB view now uses the "alt-text" theme style to draw
@@ -52,6 +81,11 @@ Interface changes:
   alternation is also now done in groups of two rows instead
   of only a single row.  Numbers are also rendered using the
   "number" theme style as well.
+* The log message overlay in the LOG view is now limited
+  2/3rds of the height and supports scrolling.  The "alt-text"
+  theme style is also used to draw the overlay contents now
+  as well. (The overlay is used to display the parser
+  details, comments, and annotations.)
 
 Breaking changes:
 * Removed the `-w` command-line option.  This option was
@@ -62,6 +96,9 @@ Breaking changes:
 * Removed the `-t` command-line flag.  Text data fed in
   on stdin and captured from a `:sh` execution is
   automatically timestamped.
+* Data piped into **lnav** is now stored in the work
+  directory instead of the `stdin-captures` dot-lnav
+  directory.
 
 ## lnav v0.11.2
 

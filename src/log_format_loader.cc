@@ -34,8 +34,6 @@
 
 #include "log_format_loader.hh"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <glob.h>
 #include <libgen.h>
 #include <sys/stat.h>
@@ -847,6 +845,50 @@ static const struct json_path_container converter_handlers = {
         .for_field(&external_log_format::converter::c_command),
 };
 
+static const struct json_path_container opid_descriptor_handlers = {
+    yajlpp::property_handler("field")
+        .with_synopsis("<name>")
+        .with_description("The field to include in the operation description")
+        .for_field(&log_format::opid_descriptor::od_field),
+    yajlpp::property_handler("extractor")
+        .with_synopsis("<regex>")
+        .with_description(
+            "The regex used to extract content for the operation description")
+        .for_field(&log_format::opid_descriptor::od_extractor),
+    yajlpp::property_handler("prefix")
+        .with_description(
+            "A string to prepend to this field in the description")
+        .for_field(&log_format::opid_descriptor::od_prefix),
+    yajlpp::property_handler("suffix")
+        .with_description("A string to append to this field in the description")
+        .for_field(&log_format::opid_descriptor::od_suffix),
+    yajlpp::property_handler("joiner")
+        .with_description("A string to insert between instances of this field "
+                          "when the field is found more than once")
+        .for_field(&log_format::opid_descriptor::od_joiner),
+};
+
+static const struct json_path_container opid_description_format_handlers = {
+    yajlpp::property_handler("format#")
+        .with_description("Defines the elements of this operation description")
+        .for_field(&log_format::opid_descriptors::od_descriptors)
+        .with_children(opid_descriptor_handlers),
+};
+
+static const struct json_path_container opid_description_handlers = {
+    yajlpp::pattern_property_handler(R"((?<opid_descriptor>[\w\.\-]+))")
+        .with_description("A type of description for this operation")
+        .for_field(&log_format::lf_opid_description_def)
+        .with_children(opid_description_format_handlers),
+};
+
+static const struct json_path_container opid_handlers = {
+    yajlpp::property_handler("description")
+        .with_description(
+            "Define how to construct a description of an operation")
+        .with_children(opid_description_handlers),
+};
+
 const struct json_path_container format_handlers = {
     yajlpp::property_handler("regex")
         .with_description(
@@ -918,7 +960,7 @@ const struct json_path_container format_handlers = {
         .with_description("A URL with more information about this log format"),
     json_path_handler("title", read_format_field)
         .with_description("The human-readable name for this log format"),
-    json_path_handler("description", read_format_field)
+    json_path_handler("description")
         .with_description("A longer description of this log format")
         .for_field(&external_log_format::lf_description),
     json_path_handler("timestamp-format#", read_format_field)
@@ -926,10 +968,13 @@ const struct json_path_container format_handlers = {
     json_path_handler("module-field", read_format_field)
         .with_description(
             "The name of the module field in the log message pattern"),
-    json_path_handler("opid-field", read_format_field)
+    json_path_handler("opid-field")
         .with_description(
             "The name of the operation-id field in the log message pattern")
         .for_field(&external_log_format::elf_opid_field),
+    yajlpp::property_handler("opid")
+        .with_description("Definitions related to operations found in logs")
+        .with_children(opid_handlers),
     yajlpp::property_handler("ordered-by-time")
         .with_synopsis("<bool>")
         .with_description(

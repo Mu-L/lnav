@@ -32,10 +32,12 @@
 #include "base/enum_util.hh"
 #include "base/func_util.hh"
 #include "base/opt_util.hh"
+#include "bound_tags.hh"
 #include "config.h"
 #include "lnav.hh"
 #include "readline_highlighters.hh"
 #include "readline_possibilities.hh"
+#include "sql_util.hh"
 
 using namespace lnav::roles::literals;
 
@@ -275,12 +277,15 @@ size_t
 filter_sub_source::text_line_count()
 {
     return (lnav_data.ld_view_stack.top() |
-            [](auto tc) {
-                text_sub_source* tss = tc->get_sub_source();
-                filter_stack& fs = tss->get_filters();
+                [](auto tc) -> nonstd::optional<size_t> {
+               text_sub_source* tss = tc->get_sub_source();
 
-                return nonstd::make_optional(fs.size());
-            })
+               if (tss == nullptr) {
+                   return nonstd::nullopt;
+               }
+               auto& fs = tss->get_filters();
+               return nonstd::make_optional(fs.size());
+           })
         .value_or(0);
 }
 

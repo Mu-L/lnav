@@ -188,6 +188,7 @@ dist_noinst_SCRIPTS = \
 	test_events.sh \
 	test_format_installer.sh \
 	test_format_loader.sh \
+	test_gantt.sh \
 	test_grep_proc.sh \
 	test_json_format.sh \
 	test_line_buffer.sh \
@@ -236,6 +237,7 @@ dist_noinst_DATA = \
 	bad-config/formats/invalid-sql/init2.sql \
 	bad-config/formats/no-regexes/format.json \
 	bad-config/formats/no-samples/format.json \
+	bad-config2/configs/invalid-annotation/config.json \
 	bad-config2/configs/invalid-theme/config.json \
 	bad-config2/formats/invalid-config/config.json \
 	bad-config2/formats/invalid-config/config.bad-schema.json \
@@ -331,6 +333,7 @@ dist_noinst_DATA = \
 	logfile_plain.0 \
 	logfile_pretty.0 \
 	logfile_procstate.0 \
+	logfile_regexp_access_log.0 \
 	logfile_rollover.0 \
 	logfile_rollover.1 \
 	logfile_strace_log.0 \
@@ -360,6 +363,7 @@ dist_noinst_DATA = \
 	logfile_w3c.6 \
 	logfile_w3c_big.0 \
 	logfile_with_a_really_long_name_to_test_a_bug_with_long_names.0 \
+	logfile_with_zones.0 \
 	logfile_xml_msg.0 \
 	multiline.lnav \
 	nested.lnav \
@@ -378,6 +382,8 @@ dist_noinst_DATA = \
 	vt52_curses_output.0 \
 	vt52_curses_output.1 \
 	xpath_tui.0 \
+	configs/installed/anno-test.json \
+	configs/installed/anno-test.sh \
 	configs/installed/hw-url-handler.json \
 	configs/installed/hw-url-handler.lnav \
 	formats/collision/format.json \
@@ -420,6 +426,7 @@ TESTS = \
 	test_listview.sh \
 	test_meta.sh \
 	test_mvwattrline.sh \
+	test_gantt.sh \
 	test_grep_proc.sh \
 	test_grep_proc2 \
 	test_json_format.sh \
@@ -512,8 +519,11 @@ distclean-local:
 	$(RM_V)rm -rf remote remote-tmp not:a:remote:dir
 	$(RM_V)rm -rf sessions
 	$(RM_V)rm -rf tmp
+	$(RM_V)rm -rf piper-tmp
 	$(RM_V)rm -rf rotmp
 	$(RM_V)rm -rf meta-sessions
+	$(RM_V)rm -rf mgmt-config
+	$(RM_V)rm -rf piper-config
 	$(RM_V)rm -rf nested
 	$(RM_V)rm -rf test-config
 	$(RM_V)rm -rf .lnav

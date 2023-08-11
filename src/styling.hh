@@ -40,9 +40,10 @@
 #include "log_level.hh"
 #include "mapbox/variant.hpp"
 #include "yajlpp/yajlpp.hh"
+#include "yajlpp/yajlpp_def.hh"
 
 struct rgb_color {
-    static Result<rgb_color, std::string> from_str(const string_fragment& sf);
+    static Result<rgb_color, std::string> from_str(string_fragment sf);
 
     explicit rgb_color(short r = -1, short g = -1, short b = -1)
         : rc_r(r), rc_g(g), rc_b(b)
@@ -155,7 +156,7 @@ struct style_config {
 };
 
 struct highlighter_config {
-    std::string hc_regex;
+    factory_container<lnav::pcre2pp::code> hc_regex;
     style_config hc_style;
 };
 

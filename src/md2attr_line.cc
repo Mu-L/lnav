@@ -488,11 +488,235 @@ md2attr_line::leave_span(const md4cpp::event_handler::span& sp)
     return Ok();
 }
 
+enum class border_side {
+    left,
+    right,
+};
+
+enum class border_line_width {
+    thin,
+    medium,
+    thick,
+};
+
+static const char*
+left_border_string(border_line_width width)
+{
+    switch (width) {
+        case border_line_width::thin:
+            return "\u258F";
+        case border_line_width::medium:
+            return "\u258E";
+        case border_line_width::thick:
+            return "\u258C";
+    }
+}
+
+static const char*
+right_border_string(border_line_width width)
+{
+    switch (width) {
+        case border_line_width::thin:
+            return "\u2595";
+        case border_line_width::medium:
+            return "\u2595";
+        case border_line_width::thick:
+            return "\u2590";
+    }
+}
+
+static attr_line_t
+span_style_border(border_side side, const string_fragment& value)
+{
+    static const auto NAME_THIN = string_fragment::from_const("thin");
+    static const auto NAME_MEDIUM = string_fragment::from_const("medium");
+    static const auto NAME_THICK = string_fragment::from_const("thick");
+    static const auto NAME_SOLID = string_fragment::from_const("solid");
+    static const auto NAME_DASHED = string_fragment::from_const("dashed");
+    static const auto NAME_DOTTED = string_fragment::from_const("dotted");
+    static const auto& vc = view_colors::singleton();
+
+    text_attrs border_attrs;
+    auto border_sf = value;
+    auto width = border_line_width::thick;
+    auto ch = side == border_side::left ? left_border_string(width)
+                                        : right_border_string(width);
+
+    while (!border_sf.empty()) {
+        auto border_split_res
+            = border_sf.split_when(string_fragment::tag1{' '});
+        auto bval = border_split_res.first;
+
+        if (bval == NAME_THIN) {
+            width = border_line_width::thin;
+        } else if (bval == NAME_MEDIUM) {
+            width = border_line_width::medium;
+        } else if (bval == NAME_THICK) {
+            width = border_line_width::thick;
+        } else if (bval == NAME_DOTTED) {
+            ch = "\u250A";
+        } else if (bval == NAME_DASHED) {
+            ch = "\u254F";
+        } else if (bval == NAME_SOLID) {
+            ch = side == border_side::left ? left_border_string(width)
+                                           : right_border_string(width);
+        } else {
+            auto color_res = styling::color_unit::from_str(bval);
+            if (color_res.isErr()) {
+                log_error("invalid border color: %.*s -- %s",
+                          bval.length(),
+                          bval.data(),
+                          color_res.unwrapErr().c_str());
+            } else {
+                border_attrs.ta_fg_color = vc.match_color(color_res.unwrap());
+            }
+        }
+        border_sf = border_split_res.second;
+    }
+    return attr_line_t(ch).with_attr_for_all(VC_STYLE.value(border_attrs));
+}
+
+static attr_line_t
+to_attr_line(const pugi::xml_node& doc)
+{
+    static const auto NAME_SPAN = string_fragment::from_const("span");
+    static const auto NAME_PRE = string_fragment::from_const("pre");
+    static const auto NAME_FG = string_fragment::from_const("color");
+    static const auto NAME_BG = string_fragment::from_const("background-color");
+    static const auto NAME_FONT_WEIGHT
+        = string_fragment::from_const("font-weight");
+    static const auto NAME_TEXT_DECO
+        = string_fragment::from_const("text-decoration");
+    static const auto NAME_BORDER_LEFT
+        = string_fragment::from_const("border-left");
+    static const auto NAME_BORDER_RIGHT
+        = string_fragment::from_const("border-right");
+    static const auto& vc = view_colors::singleton();
+
+    attr_line_t retval;
+    if (doc.children().empty()) {
+        retval.append(doc.text().get());
+    }
+    for (const auto& child : doc.children()) {
+        if (child.name() == NAME_SPAN) {
+            nonstd::optional<attr_line_t> left_border;
+            nonstd::optional<attr_line_t> right_border;
+            auto styled_span = attr_line_t(child.text().get());
+
+            auto span_class = child.attribute("class");
+            if (span_class) {
+                auto cl_iter = vc.vc_class_to_role.find(span_class.value());
+
+                if (cl_iter == vc.vc_class_to_role.end()) {
+                    log_error("unknown span class: %s", span_class.value());
+                } else {
+                    styled_span.with_attr_for_all(cl_iter->second);
+                }
+            }
+            text_attrs ta;
+            auto span_style = child.attribute("style");
+            if (span_style) {
+                auto style_sf = string_fragment::from_c_str(span_style.value());
+
+                while (!style_sf.empty()) {
+                    auto split_res
+                        = style_sf.split_when(string_fragment::tag1{';'});
+                    auto colon_split_res = split_res.first.split_pair(
+                        string_fragment::tag1{':'});
+                    if (colon_split_res) {
+                        auto key = colon_split_res->first.trim();
+                        auto value = colon_split_res->second.trim();
+
+                        if (key == NAME_FG) {
+                            auto color_res
+                                = styling::color_unit::from_str(value);
+
+                            if (color_res.isErr()) {
+                                log_error("invalid color: %.*s -- %s",
+                                          value.length(),
+                                          value.data(),
+                                          color_res.unwrapErr().c_str());
+                            } else {
+                                ta.ta_fg_color
+                                    = vc.match_color(color_res.unwrap());
+                            }
+                        } else if (key == NAME_BG) {
+                            auto color_res
+                                = styling::color_unit::from_str(value);
+
+                            if (color_res.isErr()) {
+                                log_error(
+                                    "invalid background-color: %.*s -- %s",
+                                    value.length(),
+                                    value.data(),
+                                    color_res.unwrapErr().c_str());
+                            } else {
+                                ta.ta_bg_color
+                                    = vc.match_color(color_res.unwrap());
+                            }
+                        } else if (key == NAME_FONT_WEIGHT) {
+                            if (value == "bold" || value == "bolder") {
+                                ta.ta_attrs |= A_BOLD;
+                            }
+                        } else if (key == NAME_TEXT_DECO) {
+                            auto deco_sf = value;
+
+                            while (!deco_sf.empty()) {
+                                auto deco_split_res = deco_sf.split_when(
+                                    string_fragment::tag1{' '});
+
+                                if (deco_split_res.first.trim() == "underline")
+                                {
+                                    ta.ta_attrs |= A_UNDERLINE;
+                                }
+
+                                deco_sf = deco_split_res.second;
+                            }
+                        } else if (key == NAME_BORDER_LEFT) {
+                            left_border
+                                = span_style_border(border_side::left, value);
+                        } else if (key == NAME_BORDER_RIGHT) {
+                            right_border
+                                = span_style_border(border_side::right, value);
+                        }
+                    }
+                    style_sf = split_res.second;
+                }
+                if (!ta.empty()) {
+                    styled_span.with_attr_for_all(VC_STYLE.value(ta));
+                }
+            }
+            if (left_border) {
+                retval.append(left_border.value());
+            }
+            retval.append(styled_span);
+            if (right_border) {
+                retval.append(right_border.value());
+            }
+        } else if (child.name() == NAME_PRE) {
+            auto pre_al = attr_line_t();
+
+            for (const auto& sub : child.children()) {
+                auto child_al = to_attr_line(sub);
+                if (pre_al.empty() && startswith(child_al.get_string(), "\n")) {
+                    child_al.erase(0, 1);
+                }
+                pre_al.append(child_al);
+            }
+            pre_al.with_attr_for_all(SA_PREFORMATTED.value());
+            retval.append(pre_al);
+        } else {
+            retval.append(child.text().get());
+        }
+    }
+
+    return retval;
+}
+
 Result<void, std::string>
 md2attr_line::text(MD_TEXTTYPE tt, const string_fragment& sf)
 {
     static const auto& entity_map = md4cpp::get_xml_entity_map();
-    static const auto& vc = view_colors::singleton();
 
     auto& last_block = this->ml_blocks.back();
 
@@ -517,40 +741,73 @@ md2attr_line::text(MD_TEXTTYPE tt, const string_fragment& sf)
         }
         case MD_TEXT_HTML: {
             last_block.append(sf);
-            if (sf.startswith("<span ")) {
-                this->ml_html_span_starts.push_back(last_block.length()
-                                                    - sf.length());
-            } else if (sf == "</span>" && !this->ml_html_span_starts.empty()) {
-                std::string html_span = last_block.get_string().substr(
-                    this->ml_html_span_starts.back());
 
-                pugi::xml_document doc;
+            struct open_tag {
+                std::string ot_name;
+            };
+            struct close_tag {
+                std::string ct_name;
+            };
 
-                auto load_res = doc.load_string(html_span.c_str());
-                if (load_res) {
-                    auto span = doc.child("span");
-                    if (span) {
-                        auto styled_span = attr_line_t(span.text().get());
+            mapbox::util::variant<open_tag, close_tag> tag{
+                mapbox::util::no_init{}};
 
-                        auto span_class = span.attribute("class");
-                        if (span_class) {
-                            auto cl_iter
-                                = vc.vc_class_to_role.find(span_class.value());
+            if (sf.startswith("</")) {
+                tag = close_tag{
+                    sf.substr(2)
+                        .split_when(string_fragment::tag1{'>'})
+                        .first.to_string(),
+                };
+            } else if (sf.startswith("<")) {
+                tag = open_tag{
+                    sf.substr(1)
+                        .split_when(
+                            [](char ch) { return ch == ' ' || ch == '>'; })
+                        .first.to_string(),
+                };
+            }
 
-                            if (cl_iter == vc.vc_class_to_role.end()) {
-                                log_error("unknown span class: %s",
-                                          span_class.value());
-                            } else {
-                                styled_span.with_attr_for_all(cl_iter->second);
-                            }
+            if (tag.valid()) {
+                tag.match(
+                    [this, &sf, &last_block](const open_tag& ot) {
+                        if (!this->ml_html_starts.empty()) {
+                            return;
                         }
-                        last_block.erase(this->ml_html_span_starts.back());
-                        last_block.append(styled_span);
-                    }
-                } else {
-                    log_error("failed to parse: %s", load_res.description());
-                }
-                this->ml_html_span_starts.pop_back();
+                        this->ml_html_starts.emplace_back(
+                            ot.ot_name, last_block.length() - sf.length());
+                    },
+                    [this, &last_block](const close_tag& ct) {
+                        if (this->ml_html_starts.empty()) {
+                            return;
+                        }
+                        if (this->ml_html_starts.back().first != ct.ct_name) {
+                            return;
+                        }
+
+                        const auto html_span = last_block.get_string().substr(
+                            this->ml_html_starts.back().second);
+
+                        pugi::xml_document doc;
+
+                        auto load_res = doc.load_string(html_span.c_str());
+                        if (!load_res) {
+                            log_error("XML parsing failure at %d: %s",
+                                      load_res.offset,
+                                      load_res.description());
+
+                            auto sf = string_fragment::from_str(html_span);
+                            auto error_line = sf.find_boundaries_around(
+                                load_res.offset, string_fragment::tag1{'\n'});
+                            log_error("  %.*s",
+                                      error_line.length(),
+                                      error_line.data());
+                        } else {
+                            last_block.erase(
+                                this->ml_html_starts.back().second);
+                            last_block.append(to_attr_line(doc));
+                        }
+                        this->ml_html_starts.pop_back();
+                    });
             }
             break;
         }

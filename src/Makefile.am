@@ -95,6 +95,7 @@ LNAV_BUILT_FILES = \
     ansi-palette-json.cc \
     builtin-scripts.cc \
     builtin-sh-scripts.cc \
+    css-color-names-json.cc \
     default-config.cc \
     default-formats.cc \
     diseases-json.cc \
@@ -158,11 +159,13 @@ LDADD = \
 
 # emojis.json is from https://gist.github.com/oliveratgithub/0bf11a9aff0d6da7b46f1490f86a71eb/
 # xml-entities.json is from https://html.spec.whatwg.org/entities.json
+# css-color-names.json is from https://github.com/bahamas10/css-color-names/blob/master/css-color-names.json
 
 dist_noinst_DATA = \
 	alpha-release.sh \
 	animals.json \
 	ansi-palette.json \
+	css-color-names.json \
 	diseases.json \
 	emojis.json \
 	$(BUILTIN_LNAVSCRIPTS) \
@@ -182,6 +185,7 @@ noinst_HEADERS = \
 	big_array.hh \
 	bin2c.hh \
 	bookmarks.hh \
+	bookmarks.json.hh \
 	bottom_status_source.hh \
 	bound_tags.hh \
 	breadcrumb.hh \
@@ -210,6 +214,8 @@ noinst_HEADERS = \
 	filter_sub_source.hh \
 	fstat_vtab.hh \
 	fts_fuzzy_match.hh \
+	gantt_source.hh \
+	gantt_status_source.hh \
 	grep_highlighter.hh \
 	grep_proc.hh \
 	hasher.hh \
@@ -234,6 +240,8 @@ noinst_HEADERS = \
 	lnav_config.hh \
 	lnav_config_fwd.hh \
 	lnav_util.hh \
+	log.annotate.hh \
+	log.annotate.cfg.hh \
 	log.watch.hh \
 	log_accel.hh \
 	log_actions.hh \
@@ -403,6 +411,7 @@ libdiag_a_SOURCES = \
 	fstat_vtab.cc \
     fs-extension-functions.cc \
     fts_fuzzy_match.cc \
+    gantt_source.cc \
 	grep_proc.cc \
 	help_text.cc \
 	help_text_formatter.cc \
@@ -416,6 +425,7 @@ libdiag_a_SOURCES = \
 	lnav_commands.cc \
 	lnav_config.cc \
 	lnav_util.cc \
+	log.annotate.cc \
 	log.watch.cc \
 	log_accel.cc \
 	log_actions.cc \
@@ -524,6 +534,7 @@ DISTCLEANFILES = \
     ansi-palette-json.h \
     builtin-scripts.h \
     builtin-sh-scripts.h \
+    css-color-names-json.h \
     default-config.h \
     default-formats.h \
     diseases-json.h \

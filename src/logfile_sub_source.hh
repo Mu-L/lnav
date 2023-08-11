@@ -33,23 +33,16 @@
 #define logfile_sub_source_hh
 
 #include <array>
-#include <list>
-#include <map>
-#include <sstream>
 #include <utility>
 #include <vector>
 
 #include <limits.h>
 
-#include "base/lnav.console.hh"
-#include "base/lnav_log.hh"
 #include "base/time_util.hh"
 #include "big_array.hh"
 #include "bookmarks.hh"
 #include "document.sections.hh"
 #include "filter_observer.hh"
-#include "lnav_config_fwd.hh"
-#include "log_accel.hh"
 #include "log_format.hh"
 #include "logfile.hh"
 #include "strong_int.hh"
@@ -80,39 +73,6 @@ public:
     virtual void index_complete(logfile_sub_source& lss) {}
 };
 
-class pcre_filter : public text_filter {
-public:
-    pcre_filter(type_t type,
-                const std::string& id,
-                size_t index,
-                std::shared_ptr<lnav::pcre2pp::code> code)
-        : text_filter(type, filter_lang_t::REGEX, id, index),
-          pf_pcre(std::move(code))
-    {
-    }
-
-    ~pcre_filter() override = default;
-
-    bool matches(const logfile& lf,
-                 logfile::const_iterator ll,
-                 const shared_buffer_ref& line) override
-    {
-        return this->pf_pcre->find_in(line.to_string_fragment())
-            .ignore_error()
-            .has_value();
-    }
-
-    std::string to_command() const override
-    {
-        return (this->lf_type == text_filter::INCLUDE ? "filter-in "
-                                                      : "filter-out ")
-            + this->lf_id;
-    }
-
-protected:
-    std::shared_ptr<lnav::pcre2pp::code> pf_pcre;
-};
-
 class sql_filter : public text_filter {
 public:
     sql_filter(logfile_sub_source& lss,
@@ -124,8 +84,7 @@ public:
         this->sf_filter_stmt = stmt;
     }
 
-    bool matches(const logfile& lf,
-                 logfile::const_iterator ll,
+    bool matches(nonstd::optional<line_source> ls,
                  const shared_buffer_ref& line) override;
 
     std::string to_command() const override;
@@ -281,11 +240,15 @@ public:
         }
     }
 
-    bool get_min_log_time(struct timeval& tv_out) const
+    nonstd::optional<timeval> get_min_log_time() const
     {
-        tv_out = this->lss_min_log_time;
-        return (this->lss_min_log_time.tv_sec != 0
-                || this->lss_min_log_time.tv_usec != 0);
+        if (this->lss_min_log_time.tv_sec == 0
+            && this->lss_min_log_time.tv_usec == 0)
+        {
+            return nonstd::nullopt;
+        }
+
+        return this->lss_min_log_time;
     }
 
     void set_min_log_time(const struct timeval& tv)
@@ -296,12 +259,15 @@ public:
         }
     }
 
-    bool get_max_log_time(struct timeval& tv_out) const
+    nonstd::optional<timeval> get_max_log_time() const
     {
-        tv_out = this->lss_max_log_time;
-        return (this->lss_max_log_time.tv_sec
-                    != std::numeric_limits<time_t>::max()
-                || this->lss_max_log_time.tv_usec != 0);
+        if (this->lss_max_log_time.tv_sec == std::numeric_limits<time_t>::max()
+            && this->lss_max_log_time.tv_usec == 0)
+        {
+            return nonstd::nullopt;
+        }
+
+        return this->lss_max_log_time;
     }
 
     void set_max_log_time(struct timeval& tv)
@@ -817,6 +783,8 @@ private:
 
     bool lss_in_value_for_line{false};
     bool lss_line_meta_changed{false};
+
+    bool lss_indexing_in_progress{false};
 };
 
 #endif

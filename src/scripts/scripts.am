@@ -4,11 +4,13 @@ BUILTIN_LNAVSCRIPTS = \
     $(srcdir)/scripts/docker-url-handler.lnav \
     $(srcdir)/scripts/lnav-pop-view.lnav \
     $(srcdir)/scripts/partition-by-boot.lnav \
+    $(srcdir)/scripts/piper-url-handler.lnav \
     $(srcdir)/scripts/rename-stdin.lnav \
     $(srcdir)/scripts/search-for.lnav \
     $()
 
 BUILTIN_SHSCRIPTS = \
+    $(srcdir)/scripts/com.vmware.btresolver.py \
     $(srcdir)/scripts/dump-pid.sh \
     $(srcdir)/scripts/pcap_log-converter.sh \
     $()
